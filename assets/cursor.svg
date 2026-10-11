@@ -1,1 +1,12 @@
-<!-- created by svgstack.com | Attribution is required. --><svg width="67" height="67" viewBox="0 0 67 67" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M33.2906 67L62.3937 50.25L33.2906 33.5L4.1875 50.25L33.2906 67Z" fill="url(#paint0_linear_13_95)"/><path d="M62.3938 50.25V16.75L33.2906 0V33.5L62.3938 50.25Z" fill="url(#paint1_linear_13_95)"/><path d="M33.2906 0L4.1875 16.75V50.25L33.2906 33.5V0Z" fill="url(#paint2_linear_13_95)"/><path d="M62.3938 16.75L33.2906 67V33.5L62.3938 16.75Z" fill="#555555"/><path d="M62.3937 16.75L33.2906 33.5L4.1875 16.75H62.3937Z" fill="black"/><defs><linearGradient id="paint0_linear_13_95" x1="33.2906" y1="33.5" x2="33.2906" y2="67" gradientUnits="userSpaceOnUse"><stop offset="0.16" stop-opacity="0.39"/><stop offset="0.658" stop-opacity="0.8"/></linearGradient><linearGradient id="paint1_linear_13_95" x1="62.3938" y1="16.8533" x2="33.2906" y2="33.9188" gradientUnits="userSpaceOnUse"><stop offset="0.182" stop-opacity="0.31"/><stop offset="0.715" stop-opacity="0"/></linearGradient><linearGradient id="paint2_linear_13_95" x1="33.2906" y1="-8.67341e-07" x2="4.1875" y2="50.25" gradientUnits="userSpaceOnUse"><stop stop-opacity="0.6"/><stop offset="0.667" stop-opacity="0.22"/></linearGradient></defs></svg> 
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Ebene_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 466.73 532.09">
+  
+  <defs>
+    <style>
+      .st0 {
+        fill: #26251e;
+      }
+    </style>
+  </defs>
+  <path class="st0" d="M457.43,125.94L244.42,2.96c-6.84-3.95-15.28-3.95-22.12,0L9.3,125.94c-5.75,3.32-9.3,9.46-9.3,16.11v247.99c0,6.65,3.55,12.79,9.3,16.11l213.01,122.98c6.84,3.95,15.28,3.95,22.12,0l213.01-122.98c5.75-3.32,9.3-9.46,9.3-16.11v-247.99c0-6.65-3.55-12.79-9.3-16.11h-.01ZM444.05,151.99l-205.63,356.16c-1.39,2.4-5.06,1.42-5.06-1.36v-233.21c0-4.66-2.49-8.97-6.53-11.31L24.87,145.67c-2.4-1.39-1.42-5.06,1.36-5.06h411.26c5.84,0,9.49,6.33,6.57,11.39h-.01Z"/>
+</svg>
