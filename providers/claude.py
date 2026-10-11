@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import ctypes
 import json
 import math
+import multiprocessing
 import os
 import re
+import signal
 import tempfile
 import threading
 import time
@@ -27,6 +30,15 @@ TOKEN_DEADLINE_SECONDS = 20
 MAX_EXPIRY_SECONDS = 365 * 24 * 60 * 60
 OAUTH_ERRORS = {"invalid_grant", "invalid_scope", "invalid_client",
                 "invalid_request", "unauthorized_client", "unsupported_grant_type"}
+_renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
+_renameat2.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+_renameat2.restype = ctypes.c_int
+
+
+def _publish_lock(source, destination):
+    # RENAME_NOREPLACE publishes the known inode without replacing another owner.
+    if _renameat2(-100, os.fsencode(source), -100, os.fsencode(destination), 1):
+        raise OSError(ctypes.get_errno(), "lock-publish-failed")
 
 
 def credentials_path(home: str, env: dict) -> str:
@@ -81,7 +93,7 @@ def parse(payload: dict) -> list:
     return metrics
 
 
-# Proper-lockfile-compatible mutex: mkdir the lock dir, rmdir to release.
+# Claude Code alone reclaims stale directories; pathname rmdir cannot be fenced.
 class _RefreshLock:
 
     def __init__(self, path: str):
@@ -90,51 +102,42 @@ class _RefreshLock:
         self.lost = False
         self.inode = -1
         self.mtime_ns = None
+        self.fd = None
+        self._mutex = threading.RLock()
         self._stop = None
         self._thread = None
 
     def acquire(self) -> bool:
-        if not self._create():
+        if os.path.lexists(self.path):
             return False
+        private = None
         try:
-            stat = os.stat(self.path)
+            private = tempfile.mkdtemp(dir=os.path.dirname(self.path) or ".", prefix=".oauth-lock.")
+            self.fd = os.open(private, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            stat = os.fstat(self.fd)
+            _publish_lock(private, self.path)
+            private = None
         except OSError:
+            if self.fd is not None:
+                os.close(self.fd)
+                self.fd = None
             return False
-        self.inode = stat.st_ino
+        finally:
+            if private is not None:
+                os.rmdir(private)
+        self.inode = (stat.st_dev, stat.st_ino)
         self.mtime_ns = stat.st_mtime_ns
         self.held = True
         self.lost = False
         self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._heartbeat, daemon=True)
-        self._thread.start()
+        if not self.still_owned():
+            self.release()
+            return False
         return True
 
-    def _create(self) -> bool:
-        try:
-            os.mkdir(self.path)
-            return True
-        except FileExistsError:
-            pass
-        except OSError:
-            return False
-        try:
-            first = os.stat(self.path)
-        except OSError:
-            return False
-        if time.time() - first.st_mtime <= LOCK_STALE_SECONDS:
-            return False
-        try:
-            again = os.stat(self.path)
-        except OSError:
-            return False
-        if again.st_ino != first.st_ino:
-            return False
-        try:
-            os.rmdir(self.path)
-            os.mkdir(self.path)
-            return True
-        except OSError:
-            return False
+    def _start_heartbeat(self) -> None:
+        self._thread = threading.Thread(target=self._heartbeat, daemon=True)
+        self._thread.start()
 
     def _heartbeat(self) -> None:
         while not self._stop.wait(LOCK_UPDATE_SECONDS):
@@ -142,50 +145,48 @@ class _RefreshLock:
                 return
 
     def _touch(self) -> bool:
-        if self.lost or not self.held:
-            return False
-        try:
-            before = os.stat(self.path)
-        except OSError:
-            self.lost = True
-            return False
-        if before.st_ino != self.inode or before.st_mtime_ns != self.mtime_ns:
-            self.lost = True
-            return False
-        now_ns = time.time_ns()
-        try:
-            os.utime(self.path, ns=(now_ns, now_ns))
-            after = os.stat(self.path)
-        except OSError:
-            self.lost = True
-            return False
-        if after.st_ino != self.inode:
-            self.lost = True
-            return False
-        self.mtime_ns = after.st_mtime_ns
-        return True
+        with self._mutex:
+            if not self.still_owned():
+                return False
+            now_ns = time.time_ns()
+            try:
+                os.utime(self.fd, ns=(now_ns, now_ns))
+                self.mtime_ns = os.fstat(self.fd).st_mtime_ns
+            except OSError:
+                self.lost = True
+                return False
+            return self.still_owned()
 
     def still_owned(self) -> bool:
-        if self.lost or not self.held:
-            return False
-        try:
-            return os.stat(self.path).st_ino == self.inode
-        except OSError:
-            return False
+        with self._mutex:
+            if self.lost or not self.held:
+                return False
+            try:
+                stat = os.stat(self.path, follow_symlinks=False)
+                owned = ((stat.st_dev, stat.st_ino) == self.inode
+                         and stat.st_mtime_ns == self.mtime_ns)
+            except OSError:
+                owned = False
+            self.lost = not owned
+            return owned
 
     def release(self) -> None:
-        self.held = False
         if self._stop is not None:
             self._stop.set()
-        if self.lost:
-            return
-        try:
-            if os.stat(self.path).st_ino != self.inode:
+        if self._thread is not None:
+            self._thread.join()
+        with self._mutex:
+            try:
+                if self.still_owned():
+                    stale_ns = time.time_ns() - (LOCK_STALE_SECONDS + 1) * 1_000_000_000
+                    os.utime(self.fd, ns=(stale_ns, stale_ns))
+            except OSError:
                 self.lost = True
-                return
-            os.rmdir(self.path)
-        except OSError:
-            pass
+            finally:
+                self.held = False
+                if self.fd is not None:
+                    os.close(self.fd)
+                    self.fd = None
 
 
 def _oauth_error(payload) -> str:
@@ -205,26 +206,67 @@ def _finite_seconds(value):
     return seconds if math.isfinite(seconds) and 0 < seconds <= MAX_EXPIRY_SECONDS else None
 
 
-def _bounded_call(func, deadline_seconds):
-    result = {}
-    thread = threading.Thread(target=lambda: _capture(func, result), daemon=True)
-    thread.start()
-    thread.join(deadline_seconds)
-    if thread.is_alive():
-        return None
-    if "error" in result:
-        raise result["error"]
-    return result.get("value")
+def _bounded_call(func, deadline_seconds, lock):
+    with os.fdopen(os.memfd_create("oauth-response", os.MFD_CLOEXEC), "w+b") as result:
+        process = multiprocessing.get_context("fork").Process(target=_capture, args=(func, result))
+        try:
+            process.start()
+            if lock is not None:
+                lock._start_heartbeat()
+            process.join(deadline_seconds)
+            if process.is_alive():
+                process.terminate()
+                process.join(1)
+        finally:
+            if process.pid is not None:
+                if process.is_alive():
+                    process.kill()
+                process.join()
+                process.close()
+        result.seek(0)
+        try:
+            value = json.load(result)
+        except ValueError:
+            return None
+        if value == "timeout":
+            return None
+        if value is None:
+            raise RuntimeError("exchange-failed")
+        return common.Response(value["status"], value["data"], value["error"])
+
+
+class _ExchangeTimeout(BaseException):
+    pass
+
+
+def _interrupt_exchange(signum, frame):
+    while frame is not None:
+        if frame.f_code is _capture.__code__ and frame.f_locals.get("response") is not None:
+            return
+        frame = frame.f_back
+    raise _ExchangeTimeout
 
 
 def _capture(func, result):
+    response = None
+    timed_out = False
+    signal.signal(signal.SIGTERM, _interrupt_exchange)
     try:
-        result["value"] = func()
-    except BaseException as error:  # noqa: BLE001 - re-raised by the caller
-        result["error"] = error
+        response = func()
+    except _ExchangeTimeout:
+        timed_out = True
+    except BaseException:
+        pass
+    finally:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        value = "timeout" if timed_out else None
+        if response is not None:
+            value = {"status": response.status, "data": response.data, "error": response.error}
+        result.write(json.dumps(value).encode("utf-8"))
+        result.flush()
 
 
-def refresh_access_token(request, refresh_token: str):
+def refresh_access_token(request, refresh_token: str, lock=None):
     """Exchange a refresh token; (fields, None) on success, else (None, code)."""
     if not refresh_token:
         return None, "no-refresh-token"
@@ -240,7 +282,7 @@ def refresh_access_token(request, refresh_token: str):
                        body=body, error_body=True)
 
     try:
-        response = _bounded_call(exchange, TOKEN_DEADLINE_SECONDS)
+        response = _bounded_call(exchange, TOKEN_DEADLINE_SECONDS, lock)
     except Exception:
         return None, "refresh-failed"
     if response is None:
@@ -254,9 +296,6 @@ def refresh_access_token(request, refresh_token: str):
     token = str(response.data.get("access_token") or "").strip()
     if not token:
         return None, "refresh-failed"
-    expires = response.data.get("expires_in")
-    if expires is not None and _finite_seconds(expires) is None:
-        return None, "refresh-failed"
     return response.data, None
 
 
@@ -269,8 +308,8 @@ def _expiry_ms(seconds):
         return None
 
 
-def persist_rotation(path: str, original: dict, rotated: dict) -> str:
-    """Atomically write rotated tokens; 'ok', 'changed', 'unreadable', 'write-failed'."""
+def persist_rotation(path: str, original: dict, rotated: dict, lock: _RefreshLock) -> str:
+    """Atomically write rotated tokens only while the refresh lock is owned."""
     access = str(rotated.get("access_token") or "").strip()
     if not access:
         return "write-failed"
@@ -305,13 +344,17 @@ def persist_rotation(path: str, original: dict, rotated: dict) -> str:
         os.fchmod(handle_fd, 0o600)
         with os.fdopen(handle_fd, "w", encoding="utf-8") as handle:
             json.dump(updated, handle)
-        os.replace(tmp_path, path)
+        with lock._mutex:
+            if not lock.still_owned():
+                return "lock-lost"
+            os.replace(tmp_path, path)
     except OSError:
+        return "write-failed"
+    finally:
         try:
             os.unlink(tmp_path)
         except OSError:
             pass
-        return "write-failed"
     return "ok"
 
 
@@ -325,12 +368,16 @@ def _refresh_locked(request, path: str, original: dict, refresh_token: str):
             return None, "reread-failed", False
         if current != original:
             return current, None, True
-        fields, error = refresh_access_token(request, refresh_token)
+        if not lock.still_owned():
+            return None, "lock-lost", False
+        fields, error = refresh_access_token(request, refresh_token, lock)
         if error:
             return None, error, False
         if not lock.still_owned():
             return None, "lock-lost", False
-        status = persist_rotation(path, original, fields)
+        status = persist_rotation(path, original, fields, lock)
+        if status == "lock-lost":
+            return None, status, False
         if status == "changed":
             current, _ = _read_oauth(path)
             if current is not None:

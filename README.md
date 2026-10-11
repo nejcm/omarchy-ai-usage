@@ -72,12 +72,28 @@ lock, and if another process already rotated it the new value is adopted
 instead of refreshed. If the lock is already held, no refresh is attempted and
 the row reads `refresh-locked` (shown as stale with the last good values).
 
+The collector publishes an empty directory it already owns using Linux
+`renameat2(RENAME_NOREPLACE)`, then updates its mtime through its descriptor
+every five seconds during the exchange. It never removes the shared lock,
+including stale locks. On release it stops and joins the heartbeat and marks
+only its owned directory stale. Claude Code reclaims it; until then another
+collector refresh returns `refresh-locked`.
+
+The exchange runs in a child process with a 20-second deadline and up to one
+second for cancellation. The child is killed if necessary and always reaped
+before lock release. A completed response is recovered from anonymous memory
+and persisted even if the child exits after the deadline. `refresh-timeout`
+means no complete response was recovered; the server may already have rotated
+the token, so run Claude Code to recover the login rather than retrying here.
+
 A successful rotation is written back to `~/.claude/.credentials.json`: all
 other keys are preserved, the write is a temp file in the same directory at
 mode `0600` followed by `os.replace`, and the whole `claudeAiOauth` object is
-compared so a concurrent change is never overwritten. If the write fails the
+compared, and ownership is checked immediately before replacement. Ownership
+loss returns `lock-lost` without replacing credentials. If the write fails the
 row is an error (`persist-write-failed`), never `ok`. This is the only token
 this plugin ever persists; it is never logged or passed on the command line.
+An invalid refresh expiry is ignored while the rotated tokens are saved.
 
 ## Status behavior
 

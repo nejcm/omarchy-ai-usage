@@ -6,12 +6,16 @@ from __future__ import annotations
 
 import base64
 import io
+import http.client
 import json
+import multiprocessing
 import os
+import signal
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -72,6 +76,12 @@ class ProviderCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.home = self._tmp.name
         self.addCleanup(self._tmp.cleanup)
+
+    def rotation_lock(self, path):
+        lock = claude._RefreshLock(str(path.parent / claude.LOCK_NAME))
+        self.assertTrue(lock.acquire())
+        self.addCleanup(lock.release)
+        return lock
 
 
 class ClaudeTests(ProviderCase):
@@ -165,22 +175,22 @@ class ClaudeTests(ProviderCase):
         self.assertEqual(row["status"], common.ERROR)
         self.assertEqual(row["error"], "persist-write-failed")
 
-    def test_nonfinite_expires_in_rejected(self):
+    def test_nonfinite_expiry_does_not_discard_rotation(self):
         request = FakeRequest({"": common.Response(200, {"access_token": "new", "expires_in": "Infinity"})})
         fields, error = claude.refresh_access_token(request, "refresh")
-        self.assertIsNone(fields)
-        self.assertEqual(error, "refresh-failed")
+        self.assertEqual(fields["access_token"], "new")
+        self.assertIsNone(error)
 
     def test_whole_object_compare_detects_refresh_change(self):
         path = write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "same", "refreshToken": "current"}})
         status = claude.persist_rotation(str(path), {"accessToken": "same", "refreshToken": "old"},
-                                         {"access_token": "new"})
+                                         {"access_token": "new"}, self.rotation_lock(path))
         self.assertEqual(status, "changed")
 
     def test_concurrent_rotation_skip(self):
         path = write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "current-token", "refreshToken": "r"}})
         status = claude.persist_rotation(str(path), {"accessToken": "stale-token"},
-                                         {"access_token": "new-token"})
+                                         {"access_token": "new-token"}, self.rotation_lock(path))
         self.assertEqual(status, "changed")
         self.assertEqual(json.loads(path.read_text())["claudeAiOauth"]["accessToken"], "current-token")
 
@@ -392,7 +402,8 @@ class RefreshLockTests(ProviderCase):
         self.assertTrue(lock.still_owned())
         self.assertLessEqual(time.time() - os.stat(lock.path).st_mtime, 5)
         lock.release()
-        self.assertFalse(os.path.exists(lock.path))
+        self.assertTrue(os.path.isdir(lock.path))
+        self.assertGreater(time.time() - os.stat(lock.path).st_mtime, claude.LOCK_STALE_SECONDS)
 
     def test_heartbeat_thread_runs(self):
         lock = claude._RefreshLock(self.lock_path())
@@ -400,6 +411,7 @@ class RefreshLockTests(ProviderCase):
         claude.LOCK_UPDATE_SECONDS = 0.05
         try:
             self.assertTrue(lock.acquire())
+            lock._start_heartbeat()
             time.sleep(0.25)
             self.assertFalse(lock.lost)
             self.assertTrue(lock.still_owned())
@@ -432,14 +444,120 @@ class RefreshLockTests(ProviderCase):
         self.assertFalse(lock.acquire())
         self.assertTrue(os.path.isdir(lock.path))
 
-    def test_stale_lock_is_reclaimed(self):
+    def test_stale_lock_is_left_for_cli(self):
         os.mkdir(self.lock_path())
         old = time.time() - claude.LOCK_STALE_SECONDS - 5
         os.utime(self.lock_path(), (old, old))
         lock = claude._RefreshLock(self.lock_path())
-        self.assertTrue(lock.acquire())
+        before = os.stat(self.lock_path())
+        with mock.patch("providers.claude.os.rmdir", side_effect=AssertionError("must not remove")):
+            self.assertFalse(lock.acquire())
         self.assertTrue(os.path.isdir(lock.path))
-        lock.release()
+        self.assertEqual(os.stat(lock.path).st_ino, before.st_ino)
+        self.assertEqual(os.stat(lock.path).st_mtime_ns, before.st_mtime_ns)
+
+    def test_concurrent_acquisition_does_not_replace_peer(self):
+        lock = claude._RefreshLock(self.lock_path())
+        real_publish = claude._publish_lock
+        replacement = []
+
+        def publish_after_peer(source, destination):
+            os.mkdir(destination)
+            replacement.append(os.stat(destination))
+            real_publish(source, destination)
+
+        with mock.patch.object(claude, "_publish_lock", side_effect=publish_after_peer):
+            self.assertFalse(lock.acquire())
+        self.assertIsNone(lock.fd)
+        self.assertEqual(os.stat(lock.path).st_ino, replacement[0].st_ino)
+        self.assertEqual(os.stat(lock.path).st_mtime_ns, replacement[0].st_mtime_ns)
+        self.assertEqual(list(Path(self.home).glob(".oauth-lock.*")), [])
+
+    def test_acquisition_does_not_adopt_replacement(self):
+        lock = claude._RefreshLock(self.lock_path())
+        real_publish = claude._publish_lock
+        replacement = []
+
+        def replace_after_publish(source, destination):
+            real_publish(source, destination)
+            os.rmdir(destination)
+            os.mkdir(destination)
+            replacement.append(os.stat(destination))
+
+        with mock.patch.object(claude, "_publish_lock", side_effect=replace_after_publish):
+            self.assertFalse(lock.acquire())
+        self.assertTrue(lock.lost)
+        self.assertIsNone(lock.fd)
+        self.assertEqual(os.stat(lock.path).st_mtime_ns, replacement[0].st_mtime_ns)
+
+    def test_release_after_final_stat_never_touches_replacement(self):
+        lock = claude._RefreshLock(self.lock_path())
+        self.assertTrue(lock.acquire())
+        real_owned = lock.still_owned
+        replacement = []
+
+        def replace_after_check():
+            owned = real_owned()
+            os.rmdir(lock.path)
+            os.mkdir(lock.path)
+            replacement.append(os.stat(lock.path))
+            return owned
+
+        with mock.patch.object(lock, "still_owned", side_effect=replace_after_check), \
+                mock.patch("providers.claude.os.rmdir", wraps=os.rmdir) as remove:
+            lock.release()
+        self.assertEqual(remove.call_count, 1)
+        self.assertEqual(os.stat(lock.path).st_ino, replacement[0].st_ino)
+        self.assertEqual(os.stat(lock.path).st_mtime_ns, replacement[0].st_mtime_ns)
+
+    def test_paused_heartbeat_is_joined_before_release(self):
+        lock = claude._RefreshLock(self.lock_path())
+        entered, proceed, released = threading.Event(), threading.Event(), threading.Event()
+        real_utime = os.utime
+
+        def paused_utime(fd, **kwargs):
+            if threading.current_thread() is lock._thread:
+                entered.set()
+                if not proceed.wait(2):
+                    raise AssertionError("heartbeat not resumed")
+            return real_utime(fd, **kwargs)
+
+        with mock.patch.object(claude, "LOCK_UPDATE_SECONDS", 0.01), \
+                mock.patch("providers.claude.os.utime", side_effect=paused_utime):
+            self.assertTrue(lock.acquire())
+            lock._start_heartbeat()
+            try:
+                self.assertTrue(entered.wait(2))
+                releaser = threading.Thread(target=lambda: (lock.release(), released.set()))
+                releaser.start()
+                self.assertFalse(released.wait(0.05))
+                os.rmdir(lock.path)
+                os.mkdir(lock.path)
+                replacement = os.stat(lock.path)
+            finally:
+                proceed.set()
+                releaser.join(2)
+                lock.release()
+        self.assertTrue(released.is_set())
+        self.assertFalse(lock._thread.is_alive())
+        self.assertEqual(os.stat(lock.path).st_mtime_ns, replacement.st_mtime_ns)
+
+    def test_replacement_between_stat_and_touch_is_untouched(self):
+        lock = claude._RefreshLock(self.lock_path())
+        self.assertTrue(lock.acquire())
+        self.addCleanup(lock.release)
+        real_utime = os.utime
+        replacement = []
+
+        def replace_before_touch(fd, **kwargs):
+            os.rmdir(lock.path)
+            os.mkdir(lock.path)
+            replacement.append(os.stat(lock.path))
+            return real_utime(fd, **kwargs)
+
+        with mock.patch("providers.claude.os.utime", side_effect=replace_before_touch):
+            self.assertFalse(lock._touch())
+        self.assertEqual(os.stat(lock.path).st_mtime_ns, replacement[0].st_mtime_ns)
 
 
 class ClaudeLockFlowTests(ProviderCase):
@@ -484,7 +602,97 @@ class ClaudeLockFlowTests(ProviderCase):
         self.assertEqual(row["status"], common.ERROR)
         self.assertEqual(row["error"], "refresh-timeout")
         self.assertEqual(json.loads(path.read_text())["claudeAiOauth"]["accessToken"], "old-token")
-        self.assertFalse(os.path.exists(str(path.parent / claude.LOCK_NAME)))
+        self.assertTrue(os.path.isdir(str(path.parent / claude.LOCK_NAME)))
+        self.assertEqual(multiprocessing.active_children(), [])
+
+    def test_http_body_deadline_terminates_and_reaps_exchange(self):
+        path = write(self.home, self.AUTH, self.expired())
+        read_fd, write_fd = os.pipe()
+        self.addCleanup(os.close, read_fd)
+        self.addCleanup(os.close, write_fd)
+        os.write(write_fd, b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n{\"access_token\":")
+        client = mock.Mock()
+        client.makefile.side_effect = lambda *args: os.fdopen(os.dup(read_fd), "rb")
+        marker = Path(self.home) / "exchange-finished"
+
+        def request(*args, **kwargs):
+            with http.client.HTTPResponse(client) as response:
+                response.begin()
+                response.read()
+                marker.touch()
+                return common.Response(200, {"access_token": "new"})
+
+        started = time.monotonic()
+        with mock.patch.object(claude, "TOKEN_DEADLINE_SECONDS", 0.1):
+            row = claude.collect(request, self.home, {})
+        self.assertEqual(row["error"], "refresh-timeout")
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertEqual(multiprocessing.active_children(), [])
+        self.assertFalse(marker.exists())
+        self.assertEqual(json.loads(path.read_text()), self.expired())
+
+    def test_uninterruptible_exchange_is_killed_before_release(self):
+        path = write(self.home, self.AUTH, self.expired())
+        worker_pid = Path(self.home) / "worker-pid"
+        real_release = claude._RefreshLock.release
+
+        def request(*args, **kwargs):
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            worker_pid.write_text(str(os.getpid()))
+            time.sleep(10)
+            return common.Response(200, {"access_token": "new"})
+
+        def release(lock):
+            self.assertEqual(multiprocessing.active_children(), [])
+            with self.assertRaises(ProcessLookupError):
+                os.kill(int(worker_pid.read_text()), 0)
+            real_release(lock)
+
+        with mock.patch.object(claude, "TOKEN_DEADLINE_SECONDS", 0.1), \
+                mock.patch.object(claude._RefreshLock, "release", release):
+            row = claude.collect(request, self.home, {})
+        self.assertEqual(row["error"], "refresh-timeout")
+        self.assertEqual(json.loads(path.read_text()), self.expired())
+
+    def test_completed_rotation_at_deadline_is_persisted(self):
+        path = write(self.home, self.AUTH, self.expired())
+        real_capture = claude._capture
+
+        def capture_then_pause(func, result):
+            real_capture(func, result)
+            time.sleep(10)
+
+        request = FakeRequest({"oauth/token": common.Response(200, {"access_token": "new-token",
+                                                                  "refresh_token": "new-refresh"}),
+                               "oauth/usage": common.Response(200, load("claude_usage.json"))})
+        with mock.patch.object(claude, "TOKEN_DEADLINE_SECONDS", 0.1), \
+                mock.patch.object(claude, "_capture", side_effect=capture_then_pause):
+            row = claude.collect(request, self.home, {})
+        self.assertEqual(row["status"], common.OK)
+        self.assertEqual(json.loads(path.read_text())["claudeAiOauth"]["refreshToken"], "new-refresh")
+        self.assertEqual(multiprocessing.active_children(), [])
+
+    def test_ownership_loss_during_temp_write_aborts_replace(self):
+        path = write(self.home, self.AUTH, self.expired())
+        lock_path = path.parent / claude.LOCK_NAME
+        successor = {"claudeAiOauth": {"accessToken": "successor", "refreshToken": "successor-refresh"}}
+        real_dump = json.dump
+
+        def compromise_while_writing(value, handle):
+            real_dump(value, handle)
+            os.rmdir(lock_path)
+            os.mkdir(lock_path)
+            path.write_text(json.dumps(successor))
+
+        request = FakeRequest({"oauth/token": common.Response(200, {"access_token": "new-token"})})
+        with mock.patch("providers.claude.json.dump", side_effect=compromise_while_writing), \
+                mock.patch("providers.claude.os.replace", wraps=os.replace) as replace:
+            row = claude.collect(request, self.home, {})
+        self.assertEqual(row["error"], "lock-lost")
+        replace.assert_not_called()
+        self.assertEqual(json.loads(path.read_text()), successor)
+        self.assertTrue(lock_path.is_dir())
+        self.assertEqual(list(path.parent.glob(".credentials.*.tmp")), [])
 
     def test_locked_reread_failure_aborts_before_post(self):
         write(self.home, self.AUTH, self.expired())
@@ -506,16 +714,30 @@ class ClaudeLockFlowTests(ProviderCase):
         self.assertEqual(row["error"], "reread-failed")
         self.assertEqual([url for url in calls if "oauth/token" in url], [])
 
-    def test_huge_expires_in_rejected(self):
+    def test_huge_expiry_does_not_discard_rotation(self):
         request = FakeRequest({"": common.Response(200, {"access_token": "new", "expires_in": 1e308})})
         fields, error = claude.refresh_access_token(request, "refresh")
-        self.assertIsNone(fields)
-        self.assertEqual(error, "refresh-failed")
+        self.assertEqual(fields["access_token"], "new")
+        self.assertIsNone(error)
+
+    def test_rotation_with_invalid_expiry_is_persisted(self):
+        for expires in ("Infinity", 1e308):
+            with self.subTest(expires=expires), tempfile.TemporaryDirectory() as home:
+                path = write(home, self.AUTH, self.expired())
+                request = FakeRequest({"oauth/token": common.Response(200, {"access_token": "new-token",
+                                                                          "refresh_token": "new-refresh",
+                                                                          "expires_in": expires}),
+                                       "oauth/usage": common.Response(200, load("claude_usage.json"))})
+                row = claude.collect(request, home, {})
+                self.assertEqual(row["status"], common.OK)
+                oauth = json.loads(path.read_text())["claudeAiOauth"]
+                self.assertEqual(oauth["refreshToken"], "new-refresh")
+                self.assertEqual(oauth["expiresAt"], PAST_EXP * 1000)
 
     def test_persist_never_abandons_token_on_absurd_expiry(self):
         path = write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "old", "refreshToken": "r"}})
         status = claude.persist_rotation(str(path), {"accessToken": "old", "refreshToken": "r"},
-                                         {"access_token": "new", "expires_in": 1e308})
+                                         {"access_token": "new", "expires_in": 1e308}, self.rotation_lock(path))
         self.assertEqual(status, "ok")
         self.assertEqual(json.loads(path.read_text())["claudeAiOauth"]["accessToken"], "new")
 
@@ -528,10 +750,11 @@ class MainEntryTests(ProviderCase):
         routes = {"oauth/token": common.Response(200, {"access_token": "new-token",
                                                        "refresh_token": "new-refresh", "expires_in": 3600}),
                   "oauth/usage": common.Response(200, load("claude_usage.json"))}
-        seen = []
+        seen = Path(self.home) / "request-flags"
 
         def fake_request(method, url, hosts, headers, body=None, timeout=None, error_body=False):
-            seen.append((url, error_body))
+            with seen.open("a") as handle:
+                handle.write(json.dumps([url, error_body]) + "\n")
             for needle, response in routes.items():
                 if needle in url:
                     return response
@@ -545,7 +768,7 @@ class MainEntryTests(ProviderCase):
         self.assertEqual(code, 0)
         document = json.loads(out.getvalue())
         self.assertEqual(document["providers"][0]["status"], common.OK)
-        self.assertIn(True, [flag for url, flag in seen if "oauth/token" in url])
+        self.assertIn(True, [flag for url, flag in map(json.loads, seen.read_text().splitlines()) if "oauth/token" in url])
         persisted = json.loads((Path(self.home) / ".claude/.credentials.json").read_text())
         self.assertEqual(persisted["claudeAiOauth"]["accessToken"], "new-token")
 
