@@ -7,6 +7,7 @@ import math
 import os
 import re
 import tempfile
+import threading
 import time
 
 from . import common
@@ -21,6 +22,9 @@ CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 SCOPES = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
 LOCK_NAME = ".oauth_refresh.lock"
 LOCK_STALE_SECONDS = 60
+LOCK_UPDATE_SECONDS = 5
+TOKEN_DEADLINE_SECONDS = 20
+MAX_EXPIRY_SECONDS = 365 * 24 * 60 * 60
 OAUTH_ERRORS = {"invalid_grant", "invalid_scope", "invalid_client",
                 "invalid_request", "unauthorized_client", "unsupported_grant_type"}
 
@@ -83,37 +87,105 @@ class _RefreshLock:
     def __init__(self, path: str):
         self.path = path
         self.held = False
+        self.lost = False
+        self.inode = -1
+        self.mtime_ns = None
+        self._stop = None
+        self._thread = None
 
     def acquire(self) -> bool:
+        if not self._create():
+            return False
+        try:
+            stat = os.stat(self.path)
+        except OSError:
+            return False
+        self.inode = stat.st_ino
+        self.mtime_ns = stat.st_mtime_ns
+        self.held = True
+        self.lost = False
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._heartbeat, daemon=True)
+        self._thread.start()
+        return True
+
+    def _create(self) -> bool:
         try:
             os.mkdir(self.path)
-            self.held = True
             return True
         except FileExistsError:
             pass
         except OSError:
             return False
         try:
-            age = time.time() - os.stat(self.path).st_mtime
+            first = os.stat(self.path)
         except OSError:
             return False
-        if age <= LOCK_STALE_SECONDS:
+        if time.time() - first.st_mtime <= LOCK_STALE_SECONDS:
+            return False
+        try:
+            again = os.stat(self.path)
+        except OSError:
+            return False
+        if again.st_ino != first.st_ino:
             return False
         try:
             os.rmdir(self.path)
             os.mkdir(self.path)
-            self.held = True
             return True
         except OSError:
             return False
 
+    def _heartbeat(self) -> None:
+        while not self._stop.wait(LOCK_UPDATE_SECONDS):
+            if not self._touch():
+                return
+
+    def _touch(self) -> bool:
+        if self.lost or not self.held:
+            return False
+        try:
+            before = os.stat(self.path)
+        except OSError:
+            self.lost = True
+            return False
+        if before.st_ino != self.inode or before.st_mtime_ns != self.mtime_ns:
+            self.lost = True
+            return False
+        now_ns = time.time_ns()
+        try:
+            os.utime(self.path, ns=(now_ns, now_ns))
+            after = os.stat(self.path)
+        except OSError:
+            self.lost = True
+            return False
+        if after.st_ino != self.inode:
+            self.lost = True
+            return False
+        self.mtime_ns = after.st_mtime_ns
+        return True
+
+    def still_owned(self) -> bool:
+        if self.lost or not self.held:
+            return False
+        try:
+            return os.stat(self.path).st_ino == self.inode
+        except OSError:
+            return False
+
     def release(self) -> None:
-        if self.held:
-            self.held = False
-            try:
-                os.rmdir(self.path)
-            except OSError:
-                pass
+        self.held = False
+        if self._stop is not None:
+            self._stop.set()
+        if self.lost:
+            return
+        try:
+            if os.stat(self.path).st_ino != self.inode:
+                self.lost = True
+                return
+            os.rmdir(self.path)
+        except OSError:
+            pass
 
 
 def _oauth_error(payload) -> str:
@@ -130,7 +202,26 @@ def _finite_seconds(value):
         seconds = float(value)
     except (TypeError, ValueError):
         return None
-    return seconds if math.isfinite(seconds) and seconds > 0 else None
+    return seconds if math.isfinite(seconds) and 0 < seconds <= MAX_EXPIRY_SECONDS else None
+
+
+def _bounded_call(func, deadline_seconds):
+    result = {}
+    thread = threading.Thread(target=lambda: _capture(func, result), daemon=True)
+    thread.start()
+    thread.join(deadline_seconds)
+    if thread.is_alive():
+        return None
+    if "error" in result:
+        raise result["error"]
+    return result.get("value")
+
+
+def _capture(func, result):
+    try:
+        result["value"] = func()
+    except BaseException as error:  # noqa: BLE001 - re-raised by the caller
+        result["error"] = error
 
 
 def refresh_access_token(request, refresh_token: str):
@@ -143,8 +234,17 @@ def refresh_access_token(request, refresh_token: str):
         "client_id": CLIENT_ID,
         "scope": SCOPES,
     }).encode("utf-8")
-    response = request("POST", TOKEN_URL, HOSTS, {"Content-Type": "application/json"},
+
+    def exchange():
+        return request("POST", TOKEN_URL, HOSTS, {"Content-Type": "application/json"},
                        body=body, error_body=True)
+
+    try:
+        response = _bounded_call(exchange, TOKEN_DEADLINE_SECONDS)
+    except Exception:
+        return None, "refresh-failed"
+    if response is None:
+        return None, "refresh-timeout"
     if response.status in (400, 401):
         if _oauth_error(response.data) == "invalid_grant":
             return None, "invalid_grant"
@@ -158,6 +258,15 @@ def refresh_access_token(request, refresh_token: str):
     if expires is not None and _finite_seconds(expires) is None:
         return None, "refresh-failed"
     return response.data, None
+
+
+def _expiry_ms(seconds):
+    if seconds is None:
+        return None
+    try:
+        return int(time.time() * 1000) + int(seconds * 1000)
+    except (OverflowError, ValueError):
+        return None
 
 
 def persist_rotation(path: str, original: dict, rotated: dict) -> str:
@@ -182,9 +291,9 @@ def persist_rotation(path: str, original: dict, rotated: dict) -> str:
     oauth["accessToken"] = access
     if str(rotated.get("refresh_token") or "").strip():
         oauth["refreshToken"] = str(rotated["refresh_token"]).strip()
-    seconds = _finite_seconds(rotated.get("expires_in"))
-    if seconds is not None:
-        oauth["expiresAt"] = round((time.time() + seconds) * 1000)
+    expiry = _expiry_ms(_finite_seconds(rotated.get("expires_in")))
+    if expiry is not None:
+        oauth["expiresAt"] = expiry
     updated = dict(document, claudeAiOauth=oauth)
 
     directory = os.path.dirname(path) or "."
@@ -207,17 +316,20 @@ def persist_rotation(path: str, original: dict, rotated: dict) -> str:
 
 
 def _refresh_locked(request, path: str, original: dict, refresh_token: str):
-    """Reread, refresh, and persist while holding the CLI's refresh lock."""
     lock = _RefreshLock(os.path.join(os.path.dirname(path) or ".", LOCK_NAME))
     if not lock.acquire():
         return None, "refresh-locked", False
     try:
-        current, _ = _read_oauth(path)
-        if current is not None and current != original:
+        current, error = _read_oauth(path)
+        if error:
+            return None, "reread-failed", False
+        if current != original:
             return current, None, True
         fields, error = refresh_access_token(request, refresh_token)
         if error:
             return None, error, False
+        if not lock.still_owned():
+            return None, "lock-lost", False
         status = persist_rotation(path, original, fields)
         if status == "changed":
             current, _ = _read_oauth(path)
@@ -230,9 +342,9 @@ def _refresh_locked(request, path: str, original: dict, refresh_token: str):
         oauth["accessToken"] = str(fields["access_token"]).strip()
         if str(fields.get("refresh_token") or "").strip():
             oauth["refreshToken"] = str(fields["refresh_token"]).strip()
-        seconds = _finite_seconds(fields.get("expires_in"))
-        if seconds is not None:
-            oauth["expiresAt"] = round((time.time() + seconds) * 1000)
+        expiry = _expiry_ms(_finite_seconds(fields.get("expires_in")))
+        if expiry is not None:
+            oauth["expiresAt"] = expiry
         return oauth, None, False
     finally:
         lock.release()
@@ -243,7 +355,7 @@ def _refresh_result(error, plan: str):
         return common.row(ID, NAME, ABBREV, common.NOT_SIGNED_IN, plan=plan, error="invalid-grant")
     if error == "no-refresh-token":
         return common.row(ID, NAME, ABBREV, common.EXPIRED, plan=plan, error="auth-expired")
-    if error and (error == "refresh-locked" or error.startswith("persist-") or error == "refresh-rejected"):
+    if error and error != "refresh-failed":
         return common.error_row(ID, NAME, ABBREV, error, plan)
     return None
 

@@ -85,8 +85,8 @@ def main(argv=None) -> int:
 
     home = os.path.expanduser(args.home) if args.home else os.path.expanduser("~")
 
-    def request_fn(method, url, hosts, headers, body=None):
-        return request(method, url, hosts, headers, body, args.timeout)
+    def request_fn(method, url, hosts, headers, body=None, error_body=False):
+        return request(method, url, hosts, headers, body, args.timeout, error_body=error_body)
 
     document = {
         "refreshedAt": common.now_iso(),
