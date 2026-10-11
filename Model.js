@@ -26,6 +26,7 @@ function primaryPercent(row) {
   if (!hasData(row) || !row.metrics || row.metrics.length === 0) return null
   var best = null
   for (var i = 0; i < row.metrics.length; i++) {
+    if (row.metrics[i].percent === null || row.metrics[i].percent === undefined) continue
     var value = Number(row.metrics[i].percent)
     if (isNaN(value)) continue
     if (best === null || value > best) best = value
@@ -34,8 +35,7 @@ function primaryPercent(row) {
 }
 
 function barValue(row) {
-  var value = primaryPercent(row)
-  return value === null ? "\u2013" : String(Math.round(value))
+  return percentText(primaryPercent(row))
 }
 
 function planText(row) {
@@ -103,6 +103,10 @@ function markStale(rows) {
 
 function percentText(value) {
   return value === null || value === undefined || isNaN(value) ? "\u2013" : Math.round(value) + "%"
+}
+
+function usageColor(value) {
+  return value <= 75 ? "#4ade80" : value <= 90 ? "#fb923c" : "#f87171"
 }
 
 function resetText(iso, nowMs) {

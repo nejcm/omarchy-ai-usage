@@ -147,7 +147,7 @@ BarWidget {
 
           Image {
             anchors.verticalCenter: parent.verticalCenter
-            width: valueText.implicitHeight
+            width: Math.max(1, valueText.implicitHeight - Style.space(3))
             height: width
             sourceSize: Qt.size(width * 2, width * 2)
             source: Qt.resolvedUrl("assets/" + Model.logo(item.modelData.provider, true))

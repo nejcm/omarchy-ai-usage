@@ -63,7 +63,7 @@ Panel {
       Column {
         id: content
         width: parent.width
-        spacing: Style.space(10)
+        spacing: Style.space(16)
 
         Item {
           width: parent.width
@@ -126,11 +126,11 @@ Panel {
               Text {
                 id: nameText
                 anchors.left: nameLogo.right
-                anchors.leftMargin: Style.space(6)
+                anchors.leftMargin: Style.space(8)
                 text: card.modelData.name
                 color: root.contentForeground
                 font.family: root.contentFontFamily
-                font.pixelSize: Style.font.body
+                font.pixelSize: Style.font.subtitle
                 font.bold: true
               }
 
@@ -161,7 +161,7 @@ Panel {
                 id: metric
                 required property var modelData
                 width: card.width
-                spacing: Style.space(2)
+                spacing: Style.space(4)
 
                 Item {
                   width: parent.width
@@ -179,24 +179,37 @@ Panel {
                   Text {
                     anchors.right: parent.right
                     anchors.verticalCenter: metricLabel.verticalCenter
-                    text: Model.percentText(metric.modelData.percent)
-                    color: root.contentForeground
+                    text: Model.percentText(metric.modelData.percent) + " used"
+                    color: Number(metric.modelData.percent) >= 90 ? Model.usageColor(100) : root.contentForeground
                     font.family: root.contentFontFamily
                     font.pixelSize: Style.font.caption
                   }
                 }
 
-                Rectangle {
+                Item {
+                  id: meter
                   width: parent.width
-                  height: Style.space(4)
-                  radius: height / 2
-                  color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.15)
+                  height: Style.space(7)
+                  readonly property real gap: Style.space(3)
+                  readonly property real fillWidth: Math.round(width * Math.min(1, Math.max(0, Number(metric.modelData.percent || 0) / 100)))
 
                   Rectangle {
-                    width: parent.width * Math.min(1, Math.max(0, Number(metric.modelData.percent || 0) / 100))
+                    width: meter.fillWidth
                     height: parent.height
-                    radius: parent.radius
-                    color: root.contentForeground
+                    radius: Style.space(2)
+                    color: Model.usageColor(metric.modelData.percent)
+
+                    Behavior on width {
+                      NumberAnimation { duration: 250; easing.type: Easing.OutCubic }
+                    }
+                  }
+
+                  Rectangle {
+                    x: meter.fillWidth > 0 ? meter.fillWidth + meter.gap : 0
+                    width: Math.max(0, meter.width - x)
+                    height: parent.height
+                    radius: Style.space(2)
+                    color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.12)
                   }
                 }
 

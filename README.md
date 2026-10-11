@@ -2,15 +2,18 @@
 
 A small Omarchy `bar-widget` that shows subscription quota for the AI coding
 agents already installed on this machine. The bar shows one compact
-percentage per provider; the panel shows every plan window with its reset
-countdown.
+percentage used per provider (the highest of its metrics); the panel shows
+every plan window with its reset countdown.
 
 ```
-[claude] 42 [chatgpt] 18 [opencode] 7 [cursor] 2
+[claude] 42% [chatgpt] 18% [opencode] 7% [cursor] 2%
 ```
 
 Each percentage is prefixed by its provider logo (Claude Code, Codex, OpenCode, Cursor); the panel shows the logo next to each name. A provider that is not
 signed in shows `–` in place of a number and explains itself in the panel.
+
+Every metric shows quota used; remaining quota is 100 minus that percentage.
+Panel meters are green through 75%, orange through 90%, and red above 90%.
 
 ## Install
 

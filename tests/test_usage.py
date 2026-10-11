@@ -97,6 +97,7 @@ class ClaudeTests(ProviderCase):
         row = claude.collect(request, self.home, {})
         self.assertEqual(row["status"], common.OK)
         self.assertEqual([m["label"] for m in row["metrics"]], ["Session", "Weekly"])
+        self.assertEqual([m["percent"] for m in row["metrics"]], [42.0, 18.0])
         self.assertEqual(row["plan"], "Max 20x")
         self.assertEqual(row["resetAt"], "2026-10-11T18:00:00Z")
 
@@ -284,6 +285,7 @@ class OpenCodeTests(ProviderCase):
         self.assertEqual(row["status"], common.OK)
         self.assertEqual(row["plan"], "Go")
         self.assertEqual([m["label"] for m in row["metrics"]], ["Session", "Weekly", "Monthly"])
+        self.assertEqual([m["percent"] for m in row["metrics"]], [0.0, 7.0, 3.0])
         self.assertNotIn("SECRET-KEY", json.dumps(row))
 
     def test_missing_auth(self):
@@ -350,6 +352,7 @@ class CursorTests(ProviderCase):
         self.assertEqual(row["status"], common.OK)
         self.assertEqual(row["plan"], "Free")
         self.assertEqual(row["metrics"][0]["label"], "Total usage")
+        self.assertEqual([m["percent"] for m in row["metrics"]], [2.5, 5.0, 0.0])
 
     def test_derived_total_when_percentage_absent(self):
         write(self.home, self.AUTH, self.valid_auth())
@@ -358,6 +361,14 @@ class CursorTests(ProviderCase):
         self.assertEqual(row["status"], common.OK)
         self.assertEqual(row["metrics"][0]["label"], "Total usage")
         self.assertEqual(row["metrics"][0]["percent"], 50.0)
+
+    def test_remaining_is_converted_to_used(self):
+        payload = load("cursor_spend.json")
+        del payload["planUsage"]["totalSpend"]
+        for remaining, used in ((2000, 0), (1500, 25), (500, 75), (0, 100)):
+            with self.subTest(remaining=remaining):
+                payload["planUsage"]["remaining"] = remaining
+                self.assertEqual(cursor.parse(payload)[0]["percent"], used)
 
     def test_missing_auth(self):
         self.assertEqual(cursor.collect(FakeRequest({}), self.home, {})["status"], common.NOT_SIGNED_IN)
@@ -793,6 +804,24 @@ class TransportTests(unittest.TestCase):
 
 
 class SharedTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_model_usage_formatting_and_colors(self):
+        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        script = source + """
+const assert = require("node:assert/strict");
+const row = {status:"ok", metrics:[{percent:18}, {percent:42}]};
+assert.equal(barValue(row), "42%");
+assert.equal(barValue({status:"unavailable", metrics:[]}), "–");
+assert.equal(barValue({status:"ok", metrics:[]}), "–");
+assert.equal(barValue({status:"ok", metrics:[{percent:null}, {}]}), "–");
+assert.equal(barValue({status:"ok", metrics:[{percent:0}]}), "0%");
+for (const [value, color] of [[0,"#4ade80"], [75,"#4ade80"],
+  [75.1,"#fb923c"], [90,"#fb923c"], [90.1,"#f87171"], [100,"#f87171"]]) {
+  assert.equal(usageColor(value), color);
+}
+"""
+        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+
     def test_percent_clamps_and_parses(self):
         self.assertEqual(common.percent("42%"), 42.0)
         self.assertEqual(common.percent(150), 100.0)
