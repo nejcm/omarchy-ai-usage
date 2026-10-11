@@ -2,7 +2,7 @@
 
 // Pure formatting and merge helpers shared by the bar widget and the panel.
 
-var ABBREV = { claude: "C", codex: "X", opencode: "O", cursor: "U" }
+var LOGOS = { claude: "claude", codex: "chatgpt", opencode: "opencode", cursor: "cursor" }
 
 var STATUS = {
   "stale": "stale",
@@ -13,8 +13,9 @@ var STATUS = {
   "error": "error"
 }
 
-function abbrev(provider) {
-  return ABBREV[provider] || String(provider || "?").slice(0, 1).toUpperCase()
+function logo(provider, white) {
+  var name = LOGOS[provider]
+  return name ? name + (white ? ".white" : "") + ".svg" : ""
 }
 
 function hasData(row) {
@@ -32,17 +33,9 @@ function primaryPercent(row) {
   return best
 }
 
-function tokenFor(row) {
-  var letter = abbrev(row.provider)
+function barValue(row) {
   var value = primaryPercent(row)
-  return value === null ? letter + " \u2013" : letter + " " + Math.round(value)
-}
-
-function barText(rows) {
-  if (!rows || rows.length === 0) return "AI"
-  var parts = []
-  for (var i = 0; i < rows.length; i++) parts.push(tokenFor(rows[i]))
-  return parts.join(" \u00b7 ")
+  return value === null ? "\u2013" : String(Math.round(value))
 }
 
 function planText(row) {

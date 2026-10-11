@@ -113,9 +113,20 @@ Panel {
               width: parent.width
               height: nameText.implicitHeight
 
+              Image {
+                id: nameLogo
+                anchors.left: parent.left
+                anchors.verticalCenter: nameText.verticalCenter
+                width: nameText.implicitHeight
+                height: width
+                sourceSize: Qt.size(width * 2, width * 2)
+                source: Qt.resolvedUrl("assets/" + Model.logo(card.modelData.provider))
+              }
+
               Text {
                 id: nameText
-                anchors.left: parent.left
+                anchors.left: nameLogo.right
+                anchors.leftMargin: Style.space(6)
                 text: card.modelData.name
                 color: root.contentForeground
                 font.family: root.contentFontFamily

@@ -6,10 +6,10 @@ percentage per provider; the panel shows every plan window with its reset
 countdown.
 
 ```
-C 42 · X 18 · O 7 · U 2
+[claude] 42 [chatgpt] 18 [opencode] 7 [cursor] 2
 ```
 
-`C` Claude Code, `X` Codex, `O` OpenCode, `U` Cursor. A provider that is not
+Each percentage is prefixed by its provider logo (Claude Code, Codex, OpenCode, Cursor); the panel shows the logo next to each name. A provider that is not
 signed in shows `–` in place of a number and explains itself in the panel.
 
 ## Install

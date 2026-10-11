@@ -122,11 +122,47 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: Model.barText(root.rows)
+    text: root.rows.length === 0 ? "AI" : ""
+    labelVisible: root.rows.length === 0
+    hasVisualContent: true
+    fixedWidth: root.rows.length === 0 ? -1 : barRow.implicitWidth + scaledHorizontalMargin * 2
     dimmed: !root.loadedOnce
     tooltipText: "AI subscription usage"
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.LeftButton) root.togglePanel()
+    }
+
+    Row {
+      id: barRow
+      anchors.centerIn: parent
+      spacing: Style.space(10)
+
+      Repeater {
+        model: root.rows
+
+        delegate: Row {
+          id: item
+          required property var modelData
+          spacing: Style.space(4)
+
+          Image {
+            anchors.verticalCenter: parent.verticalCenter
+            width: valueText.implicitHeight
+            height: width
+            sourceSize: Qt.size(width * 2, width * 2)
+            source: Qt.resolvedUrl("assets/" + Model.logo(item.modelData.provider, true))
+          }
+
+          Text {
+            id: valueText
+            text: Model.barValue(item.modelData)
+            color: button.foreground
+            font.family: button.fontFamily
+            font.pixelSize: button.fontSize
+            renderType: Text.NativeRendering
+          }
+        }
+      }
     }
   }
 }
