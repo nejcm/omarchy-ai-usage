@@ -5,8 +5,7 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// Bar label plus the host for the usage panel. Owns the refresh state and the
-// one-shot collector process; Panel.qml is a view onto it.
+// Owns the collector, preferences, and usage state shared with the panel.
 BarWidget {
   id: root
   moduleName: "io.github.nejcm.ai-usage"
@@ -16,14 +15,72 @@ BarWidget {
   property bool refreshing: false
   property bool loadedOnce: false
   property double lastAttemptMs: 0
+  property bool refreshPending: false
 
-  readonly property int refreshMs: Math.max(300, Number(setting("refreshIntervalSec", 300))) * 1000
+  readonly property var providerOrder: Model.providerOrder(setting("providerOrder", []))
+  readonly property var enabledProviders: Model.selectedProviders(providerOrder, setting("disabledProviders", []))
+  readonly property string selectionKey: Model.selectedProviders(Model.PROVIDERS, setting("disabledProviders", [])).join(",")
+  readonly property var displayRows: Model.orderedRows(rows, enabledProviders)
+  readonly property var navbarRows: Model.orderedRows(rows, Model.selectedProviders(providerOrder, setting("disabledProviders", []), setting("hiddenProviders", [])))
+  readonly property string displayMode: setting("displayMode", "used")
+  readonly property bool colorWarnings: setting("colorWarnings", true) === true
+  readonly property bool desktopNotifications: setting("desktopNotifications", false) === true
+  readonly property int warningThreshold: Model.warningThreshold(setting("warningThreshold", 80))
+  readonly property int refreshMs: Model.refreshSeconds(setting("refreshIntervalSec", 300)) * 1000
   readonly property string script: Qt.resolvedUrl("usage.py").toString().replace("file://", "")
 
+  function saveSetting(name, value) {
+    var next = Object.assign({}, root.settings)
+    next[name] = value
+    if (JSON.stringify(next) === JSON.stringify(root.settings)) return
+    root.settings = next
+    if (root.bar && root.bar.shell) root.bar.shell.updateEntryInline(root.moduleName, next)
+  }
+
+  function toggleProviderList(name, id) {
+    var list = setting(name, [])
+    var next = Array.isArray(list) ? list.slice() : []
+    var index = next.indexOf(id)
+    if (index < 0) next.push(id)
+    else next.splice(index, 1)
+    saveSetting(name, next)
+  }
+
+  function moveProvider(id, direction) {
+    var next = providerOrder.slice()
+    var index = next.indexOf(id)
+    var target = index + direction
+    if (index < 0 || target < 0 || target >= next.length) return
+    next.splice(index, 1)
+    next.splice(target, 0, id)
+    saveSetting("providerOrder", next)
+  }
+
+  function checkWarnings(incoming) {
+    var result = Model.warningEvents(incoming, setting("warningState", {}), warningThreshold, desktopNotifications)
+    saveSetting("warningState", result.state)
+    for (var i = 0; i < result.events.length; i++) {
+      var event = result.events[i]
+      Quickshell.execDetached(["omarchy-notification-send", "AI usage: " + event.name,
+        event.label + " is at " + Model.percentText(event.percent) + " used"])
+    }
+  }
+
   function refresh() {
-    if (usageProcess.running) return
+    if (usageProcess.running) {
+      refreshPending = true
+      return
+    }
+    refreshPending = false
+    if (enabledProviders.length === 0) {
+      loadedOnce = true
+      return
+    }
     lastAttemptMs = Date.now()
     refreshing = true
+    var command = ["python3", root.script]
+    for (var i = 0; i < enabledProviders.length; i++) command.push("--provider", enabledProviders[i])
+    usageProcess.command = command
     usageProcess.running = true
   }
 
@@ -44,13 +101,22 @@ BarWidget {
       if (root.rows.length > 0) root.rows = Model.markStale(root.rows)
       return
     }
-    var incoming = parsed.providers
+    var incoming = Model.orderedRows(parsed.providers, root.enabledProviders)
     var anyOk = false
     for (var i = 0; i < incoming.length; i++) if (incoming[i].status === "ok") anyOk = true
     root.rows = Model.mergeRows(root.rows, incoming)
     if (anyOk && parsed.refreshedAt) root.refreshedAt = parsed.refreshedAt
     root.loadedOnce = true
+    root.checkWarnings(incoming)
   }
+
+  onSelectionKeyChanged: {
+    root.rows = Model.orderedRows(root.rows, root.enabledProviders)
+    if (root.enabledProviders.length === 0) root.loadedOnce = true
+    if (root.lastAttemptMs > 0 || root.loadedOnce) Qt.callLater(root.refresh)
+  }
+
+  Component.onCompleted: if (root.enabledProviders.length === 0) root.loadedOnce = true
 
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
@@ -96,13 +162,14 @@ BarWidget {
     onExited: function(exitCode, exitStatus) {
       root.refreshing = false
       if (exitCode !== 0 && root.rows.length > 0) root.rows = Model.markStale(root.rows)
+      if (root.refreshPending) Qt.callLater(root.refresh)
     }
   }
 
   Timer {
     interval: root.refreshMs
     repeat: true
-    running: true
+    running: root.enabledProviders.length > 0
     triggeredOnStart: true
     onTriggered: root.refreshIfStale()
   }
@@ -122,10 +189,10 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.rows.length === 0 ? "AI" : ""
-    labelVisible: root.rows.length === 0
+    text: root.navbarRows.length === 0 ? "AI" : ""
+    labelVisible: root.navbarRows.length === 0
     hasVisualContent: true
-    fixedWidth: root.rows.length === 0 ? -1 : barRow.implicitWidth + scaledHorizontalMargin * 2
+    fixedWidth: root.navbarRows.length === 0 ? -1 : barRow.implicitWidth + scaledHorizontalMargin * 2
     dimmed: !root.loadedOnce
     tooltipText: "AI subscription usage"
     onPressed: function(buttonCode) {
@@ -138,7 +205,7 @@ BarWidget {
       spacing: Style.space(10)
 
       Repeater {
-        model: root.rows
+        model: root.navbarRows
 
         delegate: Row {
           id: item
@@ -155,8 +222,8 @@ BarWidget {
 
           Text {
             id: valueText
-            text: Model.barValue(item.modelData)
-            color: button.foreground
+            text: Model.barValue(item.modelData, root.displayMode)
+            color: root.colorWarnings && Model.isWarning(item.modelData, root.warningThreshold) ? Model.usageColor(100) : button.foreground
             font.family: button.fontFamily
             font.pixelSize: button.fontSize
             renderType: Text.NativeRendering

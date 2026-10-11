@@ -3,6 +3,46 @@
 // Pure formatting and merge helpers shared by the bar widget and the panel.
 
 var LOGOS = { claude: "claude", codex: "chatgpt", opencode: "opencode", cursor: "cursor" }
+var PROVIDERS = ["claude", "codex", "opencode", "cursor"]
+var NAMES = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode", cursor: "Cursor" }
+var REFRESH_MINUTES = [1, 2, 3, 5, 10, 15, 30, 60]
+
+function providerOrder(saved) {
+  var order = []
+  var requested = Array.isArray(saved) ? saved : []
+  for (var i = 0; i < requested.length; i++) {
+    if (PROVIDERS.indexOf(requested[i]) >= 0 && order.indexOf(requested[i]) < 0) order.push(requested[i])
+  }
+  for (var j = 0; j < PROVIDERS.length; j++) {
+    if (order.indexOf(PROVIDERS[j]) < 0) order.push(PROVIDERS[j])
+  }
+  return order
+}
+
+function selectedProviders(order, disabled, hidden) {
+  return order.filter(function(id) {
+    return (!Array.isArray(disabled) || disabled.indexOf(id) < 0)
+      && (!Array.isArray(hidden) || hidden.indexOf(id) < 0)
+  })
+}
+
+function orderedRows(rows, ids) {
+  var out = []
+  for (var i = 0; i < ids.length; i++) {
+    for (var j = 0; j < rows.length; j++) if (rows[j].provider === ids[i]) out.push(rows[j])
+  }
+  return out
+}
+
+function refreshSeconds(value) {
+  var seconds = Number(value)
+  return REFRESH_MINUTES.indexOf(seconds / 60) >= 0 ? seconds : 300
+}
+
+function warningThreshold(value) {
+  var number = Number(value)
+  return isFinite(number) ? Math.max(1, Math.min(100, Math.round(number))) : 80
+}
 
 var STATUS = {
   "stale": "stale",
@@ -34,8 +74,45 @@ function primaryPercent(row) {
   return best
 }
 
-function barValue(row) {
-  return percentText(primaryPercent(row))
+function barValue(row, mode) {
+  var used = primaryPercent(row)
+  if (used === null) return percentText(null)
+  var remaining = 100 - Math.round(used)
+  if (mode === "remaining") return percentText(remaining)
+  if (mode === "both") return percentText(used) + " / " + percentText(remaining)
+  return percentText(used)
+}
+
+function isWarning(row, threshold) {
+  var value = primaryPercent(row)
+  return value !== null && value >= threshold
+}
+
+function warningEvents(rows, previous, threshold, notify) {
+  var state = Object.assign({}, previous || {})
+  var events = []
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i]
+    if (row.status !== "ok") continue
+    for (var j = 0; j < row.metrics.length; j++) {
+      var metric = row.metrics[j]
+      if (metric.percent === null || metric.percent === undefined || !isFinite(Number(metric.percent))) continue
+      var key = row.provider + ":" + metric.label
+      var period = isNaN(Date.parse(metric.resetsAt)) ? "" : metric.resetsAt
+      var old = state[key]
+      // Relative reset estimates can drift between polls.
+      var samePeriod = !!old && (old.period === period || Math.abs(Date.parse(old.period) - Date.parse(period)) < 60000)
+      if (samePeriod) period = old.period
+      var fired = samePeriod && old.fired === true
+      if (!period && Number(metric.percent) < threshold) fired = false
+      if (notify && Number(metric.percent) >= threshold && !fired) {
+        events.push({ name: row.name, label: metric.label, percent: metric.percent })
+        fired = true
+      }
+      state[key] = { period: period, fired: fired }
+    }
+  }
+  return { state: state, events: events }
 }
 
 function planText(row) {

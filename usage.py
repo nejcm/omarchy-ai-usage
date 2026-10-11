@@ -64,7 +64,7 @@ def request(method: str, url: str, hosts, headers: dict, body=None, timeout: flo
 
 def collect_all(home: str, env: dict, request_fn=request, select=None) -> list:
     modules = providers.REGISTRY
-    if select:
+    if select is not None:
         modules = [module for module in modules if module.ID in select]
     rows = []
     for module in modules:

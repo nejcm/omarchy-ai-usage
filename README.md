@@ -14,6 +14,34 @@ signed in shows `–` in place of a number and explains itself in the panel.
 
 Every metric shows quota used; remaining quota is 100 minus that percentage.
 Panel meters are green through 75%, orange through 90%, and red above 90%.
+Warning colors also highlight limits at the configured warning threshold.
+
+## Settings
+
+Click the cog at the top right of the panel. Back returns to usage; Close
+dismisses the panel. Reopening starts on usage. Settings save immediately in
+the widget's existing Omarchy `shell.json` entry.
+The panel uses at most 60% of the screen height; longer content scrolls.
+
+- Enable or disable each provider. Disabled providers are not collected or
+  displayed; their credentials and preferences are preserved. An already
+  running collection finishes safely, but its disabled results are discarded.
+- Show or hide providers in the navbar independently. Hidden providers still
+  appear in the panel and can send warnings. An `AI` button remains when
+  everything is hidden or disabled, so settings stay accessible.
+- Move providers up or down to change both navbar and panel order.
+- Refresh every 1, 2, 3, 5, 10, 15, 30, or 60 minutes. Default: 5 minutes.
+  Shorter intervals make more requests and may encounter provider throttling.
+- Show used percentage, remaining percentage, or both in the navbar.
+  Both shows `used / remaining`; the most-used limit determines each value.
+- Set a global warning threshold from 1–100% used, default 80%. Warning colors
+  default on; desktop notifications default off. Notifications fire once per
+  limit period, including for providers hidden from the navbar. Warning memory
+  survives shell restarts. Limits without a reset time rearm after fresh usage
+  falls below the threshold. Stale readings never send notifications.
+
+All providers default to enabled and visible, in the existing order. The
+default navbar value is percentage used. No additional dependencies are needed.
 
 ## Install
 
@@ -31,8 +59,8 @@ Reload the shell only if the panel does not appear after a re-scan
 ## How it works
 
 `BarWidget.qml` runs `usage.py` with the system `python3` on load, when the
-panel opens while the cache is stale, and at most every five minutes (the
-interval has a hard 300-second floor). The collector reads each provider's
+panel opens while the cache is stale, and at the configured interval, five
+minutes by default. The collector reads each enabled provider's
 local credential file, calls that provider's one quota endpoint, and prints a
 normalized JSON document. The widget merges by provider, so a failed refresh
 keeps that provider's last good metrics and successful timestamp and marks the
@@ -54,8 +82,9 @@ token, described below.
 | Cursor | `~/.config/cursor/auth.json` (`XDG_CONFIG_HOME`) | `api2.cursor.sh` | Total usage, Cursor models, Other models |
 
 Each provider is one module under `providers/` that declares its credential
-path, allowed hosts, fetch, and response parser. Adding a provider is one new
-module, its fixtures, and one line in `providers/__init__.py`.
+path, allowed hosts, fetch, and response parser. Adding a provider requires its
+module and fixtures, a registry entry in `providers/__init__.py`, and display
+metadata in `Model.js`.
 
 The shared transport in `usage.py` enforces a per-provider host allow-list, a
 10-second timeout, no HTTP redirects (so an `Authorization` header is never

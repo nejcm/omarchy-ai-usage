@@ -805,6 +805,116 @@ class TransportTests(unittest.TestCase):
 
 class SharedTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_widget_collection_selection_and_late_output(self):
+        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        script = source + "\nconst qml = " + json.dumps((ROOT / "BarWidget.qml").read_text()) + ";" + """
+const assert = require("node:assert/strict");
+const root = {enabledProviders:[], loadedOnce:false, refreshPending:false,
+  refreshing:false, lastAttemptMs:0, rows:[], script:"/plugin path/usage.py",
+  checkWarnings(rows) { this.warningRows = rows; }};
+const process = {running:false};
+const Model = {orderedRows, mergeRows, markStale};
+function method(name) {
+  const start = qml.indexOf("  function " + name + "(");
+  const end = qml.indexOf("\\n  }", start) + 4;
+  assert(start >= 0 && end > start);
+  return new Function("root", "usageProcess", "Model",
+    "with (root) { return (" + qml.slice(start, end) + ") }")(root, process, Model);
+}
+const refresh = method("refresh");
+refresh();
+assert.equal(process.running, false);
+assert.equal(root.loadedOnce, true);
+root.enabledProviders = ["cursor", "codex"];
+refresh();
+assert.deepEqual(process.command, ["python3", "/plugin path/usage.py", "--provider", "cursor", "--provider", "codex"]);
+assert.equal(process.running, true);
+assert(root.lastAttemptMs > 0);
+root.enabledProviders = ["codex"];
+refresh();
+assert.equal(root.refreshPending, true);
+method("applyOutput")(JSON.stringify({providers:[
+  {provider:"cursor", status:"ok", metrics:[]},
+  {provider:"codex", status:"ok", metrics:[{percent:90}]}]}));
+assert.deepEqual(root.rows.map(row => row.provider), ["codex"]);
+assert.deepEqual(root.warningRows.map(row => row.provider), ["codex"]);
+process.running = false;
+refresh();
+assert.equal(root.refreshPending, false);
+assert.deepEqual(process.command, ["python3", "/plugin path/usage.py", "--provider", "codex"]);
+method("applyOutput")("invalid json");
+assert.equal(root.rows[0].status, "stale");
+"""
+        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_settings_and_warning_periods(self):
+        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        script = source + """
+const assert = require("node:assert/strict");
+assert.deepEqual(providerOrder(["cursor", "bad", "cursor"]), ["cursor", "claude", "codex", "opencode"]);
+assert.deepEqual(providerOrder(null), PROVIDERS);
+assert.deepEqual(selectedProviders(PROVIDERS, ["claude"], ["cursor"]), ["codex", "opencode"]);
+assert.deepEqual(selectedProviders(PROVIDERS, PROVIDERS), []);
+assert.deepEqual(selectedProviders(PROVIDERS, {}, {}), PROVIDERS);
+const rows = PROVIDERS.map(provider => ({provider, status:"ok", metrics:[{percent:70.4}]}));
+assert.deepEqual(orderedRows(rows, ["cursor", "claude"]).map(row => row.provider), ["cursor", "claude"]);
+assert.equal(barValue(rows[0], "remaining"), "30%");
+assert.equal(barValue(rows[0], "both"), "70% / 30%");
+assert.equal(barValue({status:"unavailable"}, "remaining"), "–");
+for (const minute of REFRESH_MINUTES) assert.equal(refreshSeconds(minute * 60), minute * 60);
+for (const value of [0, -1, "bad", 240, Infinity, null]) assert.equal(refreshSeconds(value), 300);
+assert.equal(warningThreshold("bad"), 80);
+assert.equal(warningThreshold(0), 1);
+assert.equal(warningThreshold(150), 100);
+assert.equal(isWarning(rows[0], 70), true);
+assert.equal(isWarning({status:"unavailable"}, 80), false);
+const row = {provider:"codex", name:"Codex", status:"ok", metrics:[
+  {label:"Session", percent:85, resetsAt:"2030-01-01T00:00:00Z"},
+  {label:"Weekly", percent:90, resetsAt:"2030-01-07T00:00:00Z"}]};
+let result = warningEvents([row], {}, 80, false);
+assert.equal(result.events.length, 0);
+result = warningEvents([row], result.state, 80, true);
+assert.equal(result.events.length, 2);
+let state = JSON.parse(JSON.stringify(result.state));
+assert.equal(warningEvents([row], state, 80, true).events.length, 0);
+row.metrics[0].resetsAt = "2030-01-01T00:00:01.250Z";
+assert.equal(warningEvents([row], state, 80, true).events.length, 0);
+row.metrics[0].percent = 20;
+state = warningEvents([row], state, 80, true).state;
+row.metrics[0].percent = 85;
+assert.equal(warningEvents([row], state, 80, true).events.length, 0);
+row.metrics[0].resetsAt = "2030-01-01T05:00:00Z";
+result = warningEvents([row], state, 80, true);
+assert.equal(result.events.length, 1);
+state = result.state;
+row.status = "stale";
+row.metrics[1].resetsAt = "2030-01-14T00:00:00Z";
+assert.deepEqual(warningEvents([row], state, 80, true), {state, events:[]});
+row.status = "ok";
+row.metrics = [{label:"Total", percent:85, resetsAt:""}];
+result = warningEvents([row], {}, 80, true);
+assert.equal(result.events.length, 1);
+assert.equal(warningEvents([row], result.state, 80, true).events.length, 0);
+row.metrics[0].percent = 79;
+state = warningEvents([row], result.state, 80, true).state;
+row.metrics[0].percent = 85;
+assert.equal(warningEvents([row], state, 80, true).events.length, 1);
+row.metrics[0].percent = null;
+assert.equal(warningEvents([row], {}, 80, true).events.length, 0);
+assert.deepEqual(PROVIDERS, """ + json.dumps([module.ID for module in providers_pkg.REGISTRY]) + ");"
+        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+
+    def test_collector_skips_disabled_providers(self):
+        with mock.patch.object(claude, "collect") as disabled, mock.patch.object(codex, "collect", return_value={"provider": "codex"}) as enabled:
+            self.assertEqual(usage.collect_all("/unused", {}, select=["codex"]), [{"provider": "codex"}])
+            disabled.assert_not_called()
+            enabled.assert_called_once()
+            enabled.reset_mock()
+            self.assertEqual(usage.collect_all("/unused", {}, select=[]), [])
+            enabled.assert_not_called()
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_model_usage_formatting_and_colors(self):
         source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
         script = source + """

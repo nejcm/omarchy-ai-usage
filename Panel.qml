@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import Quickshell
 import qs.Commons
 import qs.Ui
@@ -15,9 +16,10 @@ Panel {
   property var anchorItem: null
   property var hostWidget: null
   property double nowMs: Date.now()
+  property bool settingsOpen: false
   readonly property var barIdentity: hostWidget || root
 
-  readonly property var rows: hostWidget ? hostWidget.rows : []
+  readonly property var rows: hostWidget ? hostWidget.displayRows : []
   readonly property bool refreshing: hostWidget ? hostWidget.refreshing : false
   readonly property string refreshedAt: hostWidget ? hostWidget.refreshedAt : ""
   readonly property color contentForeground: bar ? bar.barForeground : Color.foreground
@@ -25,10 +27,21 @@ Panel {
   readonly property color dimForeground: Qt.darker(contentForeground, 1.5)
 
   function open() {
+    root.settingsOpen = false
     root.nowMs = Date.now()
-    if (hostWidget && hostWidget.refreshIfStale) hostWidget.refreshIfStale()
+    if (hostWidget && hostWidget.refreshIfStale)
+      hostWidget.refreshIfStale()
     root.controller.show()
   }
+
+  function showSettings(show) {
+    root.settingsOpen = show
+    scroll.contentY = 0
+    backButton.forceActiveFocus()
+  }
+
+  onOpenedChanged: if (!opened)
+    root.settingsOpen = false
 
   function switchPanel(direction) {
     if (root.bar && typeof root.bar.switchPanelFrom === "function")
@@ -52,179 +65,271 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(340))
-    contentHeight: panel.fittedContentHeight(content.implicitHeight)
+    contentHeight: panel.fittedContentHeight(header.height + Style.space(32) + (root.settingsOpen ? settingsContent.implicitHeight : content.implicitHeight), Math.floor(panel.screenH * 0.6))
 
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
+      blocked: root.settingsOpen
+      Keys.onEscapePressed: root.close()
       onCloseRequested: root.close()
-      onTabRequested: function(direction) { root.switchPanel(direction) }
+      onTabRequested: function (direction) {
+        root.switchPanel(direction)
+      }
+      onActivateRequested: root.showSettings(true)
 
       Column {
-        id: content
+        anchors.fill: parent
         width: parent.width
         spacing: Style.space(16)
 
         Item {
+          id: header
           width: parent.width
-          height: titleText.implicitHeight
+          height: Math.max(titleText.implicitHeight, headerActions.implicitHeight)
 
           Text {
             id: titleText
             anchors.left: parent.left
-            text: "AI subscription usage"
+            anchors.verticalCenter: parent.verticalCenter
+            text: root.settingsOpen ? "Settings" : "AI subscription usage"
             color: root.contentForeground
             font.family: root.contentFontFamily
             font.pixelSize: Style.font.subtitle
             font.bold: true
           }
 
-          Text {
+          Row {
+            id: headerActions
             anchors.right: parent.right
-            anchors.verticalCenter: titleText.verticalCenter
-            text: root.refreshing ? "refreshing…" : Model.clockText(root.refreshedAt)
-            color: root.dimForeground
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(4)
+            PanelActionButton {
+              id: backButton
+              iconText: root.settingsOpen ? "←" : "󰒓"
+              tooltipText: root.settingsOpen ? "Back to usage" : "Settings"
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              focusable: true
+              onClicked: root.showSettings(!root.settingsOpen)
+            }
+            PanelActionButton {
+              iconText: "×"
+              tooltipText: "Close"
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              focusable: true
+              onClicked: root.close()
+            }
           }
         }
 
-        PanelSeparator { foreground: root.contentForeground }
-
-        Text {
-          visible: root.rows.length === 0
-          width: parent.width
-          text: root.refreshing ? "Loading…" : "No usage data yet"
-          color: root.dimForeground
-          font.family: root.contentFontFamily
-          font.pixelSize: Style.font.body
+        PanelSeparator {
+          foreground: root.contentForeground
         }
 
-        Repeater {
-          model: root.rows
+        Flickable {
+          id: scroll
+          width: parent.width
+          height: Math.max(0, parent.height - y)
+          contentWidth: width
+          contentHeight: root.settingsOpen ? settingsContent.implicitHeight : content.implicitHeight
+          clip: true
+          boundsBehavior: Flickable.StopAtBounds
 
-          delegate: Column {
-            id: card
-            required property var modelData
-            width: content.width
-            spacing: Style.space(4)
-
-            Item {
-              width: parent.width
-              height: nameText.implicitHeight
-
-              Image {
-                id: nameLogo
-                anchors.left: parent.left
-                anchors.verticalCenter: nameText.verticalCenter
-                width: nameText.implicitHeight
-                height: width
-                sourceSize: Qt.size(width * 2, width * 2)
-                source: Qt.resolvedUrl("assets/" + Model.logo(card.modelData.provider))
-              }
-
-              Text {
-                id: nameText
-                anchors.left: nameLogo.right
-                anchors.leftMargin: Style.space(8)
-                text: card.modelData.name
-                color: root.contentForeground
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.subtitle
-                font.bold: true
-              }
-
-              Text {
-                anchors.right: parent.right
-                anchors.verticalCenter: nameText.verticalCenter
-                text: Model.planText(card.modelData)
-                color: root.dimForeground
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.caption
-              }
+          Loader {
+            id: settingsContent
+            width: scroll.width
+            visible: root.settingsOpen
+            active: root.hostWidget !== null
+            sourceComponent: Settings {
+              hostWidget: root.hostWidget
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
             }
+          }
+
+          Column {
+            id: content
+            width: scroll.width
+            visible: !root.settingsOpen
+            spacing: Style.space(16)
 
             Text {
-              visible: Model.statusText(card.modelData) !== ""
-              width: parent.width
-              text: Model.statusText(card.modelData)
+              visible: root.refreshedAt !== "" || root.refreshing
+              text: root.refreshing ? "refreshing…" : "Updated " + Model.clockText(root.refreshedAt)
               color: root.dimForeground
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
-              wrapMode: Text.WordWrap
+            }
+
+            Text {
+              visible: root.rows.length === 0
+              width: parent.width
+              text: root.hostWidget && root.hostWidget.enabledProviders.length === 0 ? "No providers enabled" : root.refreshing ? "Loading…" : "No usage data yet"
+              color: root.dimForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.body
+            }
+
+            Button {
+              visible: root.hostWidget && root.hostWidget.enabledProviders.length === 0
+              text: "Open settings"
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              focusable: true
+              onClicked: root.showSettings(true)
             }
 
             Repeater {
-              model: card.modelData.metrics
+              model: root.rows
 
               delegate: Column {
-                id: metric
+                id: card
                 required property var modelData
-                width: card.width
+                width: content.width
                 spacing: Style.space(4)
 
                 Item {
                   width: parent.width
-                  height: metricLabel.implicitHeight
+                  height: nameText.implicitHeight
+
+                  Image {
+                    id: nameLogo
+                    anchors.left: parent.left
+                    anchors.verticalCenter: nameText.verticalCenter
+                    width: nameText.implicitHeight
+                    height: width
+                    sourceSize: Qt.size(width * 2, width * 2)
+                    source: Qt.resolvedUrl("assets/" + Model.logo(card.modelData.provider, card.modelData.provider === "codex" || card.modelData.provider === "cursor"))
+                  }
 
                   Text {
-                    id: metricLabel
-                    anchors.left: parent.left
-                    text: metric.modelData.label
+                    id: nameText
+                    anchors.left: nameLogo.right
+                    anchors.leftMargin: Style.space(8)
+                    text: card.modelData.name
                     color: root.contentForeground
                     font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.caption
+                    font.pixelSize: Style.font.subtitle
+                    font.bold: true
                   }
 
                   Text {
                     anchors.right: parent.right
-                    anchors.verticalCenter: metricLabel.verticalCenter
-                    text: Model.percentText(metric.modelData.percent) + " used"
-                    color: Number(metric.modelData.percent) >= 90 ? Model.usageColor(100) : root.contentForeground
+                    anchors.verticalCenter: nameText.verticalCenter
+                    text: Model.planText(card.modelData)
+                    color: root.dimForeground
                     font.family: root.contentFontFamily
                     font.pixelSize: Style.font.caption
                   }
                 }
 
-                Item {
-                  id: meter
-                  width: parent.width
-                  height: Style.space(7)
-                  readonly property real gap: Style.space(3)
-                  readonly property real fillWidth: Math.round(width * Math.min(1, Math.max(0, Number(metric.modelData.percent || 0) / 100)))
-
-                  Rectangle {
-                    width: meter.fillWidth
-                    height: parent.height
-                    radius: Style.space(2)
-                    color: Model.usageColor(metric.modelData.percent)
-
-                    Behavior on width {
-                      NumberAnimation { duration: 250; easing.type: Easing.OutCubic }
-                    }
-                  }
-
-                  Rectangle {
-                    x: meter.fillWidth > 0 ? meter.fillWidth + meter.gap : 0
-                    width: Math.max(0, meter.width - x)
-                    height: parent.height
-                    radius: Style.space(2)
-                    color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.12)
-                  }
-                }
-
                 Text {
-                  visible: metric.modelData.resetsAt !== ""
-                  text: "resets in " + Model.resetText(metric.modelData.resetsAt, root.nowMs)
+                  visible: Model.statusText(card.modelData) !== ""
+                  width: parent.width
+                  text: Model.statusText(card.modelData)
                   color: root.dimForeground
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
+                }
+
+                Repeater {
+                  model: card.modelData.metrics
+
+                  delegate: Column {
+                    id: metric
+                    required property var modelData
+                    width: card.width
+                    spacing: Style.space(4)
+
+                    Item {
+                      width: parent.width
+                      height: metricLabel.implicitHeight
+
+                      Text {
+                        id: metricLabel
+                        anchors.left: parent.left
+                        text: metric.modelData.label
+                        color: root.contentForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                      }
+
+                      Text {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: metricLabel.verticalCenter
+                        text: Model.percentText(metric.modelData.percent) + " used"
+                        color: root.hostWidget && root.hostWidget.colorWarnings && Number(metric.modelData.percent) >= root.hostWidget.warningThreshold ? Model.usageColor(100) : root.contentForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                      }
+                    }
+
+                    Item {
+                      id: meter
+                      width: parent.width
+                      height: Style.space(7)
+                      readonly property real gap: Style.space(3)
+                      readonly property real fillWidth: Math.round(width * Math.min(1, Math.max(0, Number(metric.modelData.percent || 0) / 100)))
+
+                      Rectangle {
+                        width: meter.fillWidth
+                        height: parent.height
+                        radius: Style.space(2)
+                        color: root.hostWidget && root.hostWidget.colorWarnings && Number(metric.modelData.percent) >= root.hostWidget.warningThreshold ? Model.usageColor(100) : Model.usageColor(metric.modelData.percent)
+
+                        Behavior on width {
+                          NumberAnimation {
+                            duration: 250
+                            easing.type: Easing.OutCubic
+                          }
+                        }
+                      }
+
+                      Rectangle {
+                        x: meter.fillWidth > 0 ? meter.fillWidth + meter.gap : 0
+                        width: Math.max(0, meter.width - x)
+                        height: parent.height
+                        radius: Style.space(2)
+                        color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.12)
+                      }
+                    }
+
+                    Text {
+                      visible: metric.modelData.resetsAt !== ""
+                      text: "resets in " + Model.resetText(metric.modelData.resetsAt, root.nowMs)
+                      color: root.dimForeground
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.caption
+                    }
+                  }
                 }
               }
             }
           }
         }
       }
+    }
+  }
+
+  Connections {
+    target: keyCatcher.Window.window
+    function onActiveFocusItemChanged() {
+      var item = keyCatcher.Window.window.activeFocusItem
+      if (!root.settingsOpen || !item)
+        return
+      var ancestor = item
+      while (ancestor && ancestor !== settingsContent)
+        ancestor = ancestor.parent
+      if (!ancestor)
+        return
+      var position = item.mapToItem(settingsContent, 0, 0).y
+      if (position < scroll.contentY)
+        scroll.contentY = position
+      else if (position + item.height > scroll.contentY + scroll.height)
+        scroll.contentY = Math.min(Math.max(0, scroll.contentHeight - scroll.height), position + item.height - scroll.height)
     }
   }
 }
