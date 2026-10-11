@@ -14,6 +14,7 @@ BarWidget {
   property string refreshedAt: ""
   property bool refreshing: false
   property bool loadedOnce: false
+  property var warningState: setting("warningState", {})
   property double lastAttemptMs: 0
   property bool refreshPending: false
 
@@ -57,8 +58,8 @@ BarWidget {
   }
 
   function checkWarnings(incoming) {
-    var result = Model.warningEvents(incoming, setting("warningState", {}), warningThreshold, desktopNotifications)
-    saveSetting("warningState", result.state)
+    var result = Model.warningEvents(incoming, warningState, warningThreshold, desktopNotifications)
+    warningState = result.state
     for (var i = 0; i < result.events.length; i++) {
       var event = result.events[i]
       Quickshell.execDetached(["omarchy-notification-send", "AI usage: " + event.name,
