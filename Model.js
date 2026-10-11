@@ -65,7 +65,7 @@ function mergeRows(previous, incoming) {
   for (var j = 0; j < next.length; j++) {
     var row = next[j]
     var old = byId[row.provider]
-    if (row.status !== "ok" && old && old.status === "ok") {
+    if (row.status !== "ok" && hasData(old)) {
       out.push({
         provider: row.provider,
         name: row.name,

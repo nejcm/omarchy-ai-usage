@@ -6,11 +6,15 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -45,7 +49,7 @@ class FakeRequest:
         self.routes = routes
         self.calls = []
 
-    def __call__(self, method, url, hosts, headers, body=None):
+    def __call__(self, method, url, hosts, headers, body=None, error_body=False):
         self.calls.append({"method": method, "url": url, "hosts": tuple(hosts), "headers": dict(headers)})
         for needle, response in self.routes.items():
             if needle in url:
@@ -111,15 +115,71 @@ class ClaudeTests(ProviderCase):
     def test_refresh_invalid_grant_is_not_signed_in(self):
         write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "old-token", "refreshToken": "old-refresh",
                                                         "expiresAt": PAST_EXP * 1000}})
-        request = FakeRequest({"oauth/token": common.Response(400, None)})
+        request = FakeRequest({"oauth/token": common.Response(400, {"error": "invalid_grant"})})
         row = claude.collect(request, self.home, {})
         self.assertEqual(row["status"], common.NOT_SIGNED_IN)
 
+    def test_refresh_rejected_is_not_not_signed_in(self):
+        write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "old-token", "refreshToken": "old-refresh",
+                                                        "expiresAt": PAST_EXP * 1000}})
+        request = FakeRequest({"oauth/token": common.Response(400, {"error": "invalid_scope"})})
+        row = claude.collect(request, self.home, {})
+        self.assertEqual(row["status"], common.ERROR)
+        self.assertEqual(row["error"], "refresh-rejected")
+
+    def test_refresh_error_without_body_is_rejected(self):
+        write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "old-token", "refreshToken": "old-refresh",
+                                                        "expiresAt": PAST_EXP * 1000}})
+        request = FakeRequest({"oauth/token": common.Response(401, None)})
+        row = claude.collect(request, self.home, {})
+        self.assertEqual(row["error"], "refresh-rejected")
+
+    def test_oauth_error_allow_list(self):
+        self.assertEqual(claude._oauth_error({"error": "invalid_grant"}), "invalid_grant")
+        self.assertEqual(claude._oauth_error({"error": "invalid_scope"}), "invalid_scope")
+        self.assertEqual(claude._oauth_error({"error": "something_else"}), "")
+        self.assertEqual(claude._oauth_error({"error_description": "invalid_grant"}), "")
+        self.assertEqual(claude._oauth_error(None), "")
+
+    def test_refresh_locked_returns_bounded(self):
+        path = write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "old-token", "refreshToken": "old-refresh",
+                                                              "expiresAt": PAST_EXP * 1000}})
+        os.mkdir(str(path.parent / claude.LOCK_NAME))
+        request = FakeRequest({"oauth/usage": common.Response(200, load("claude_usage.json"))})
+        row = claude.collect(request, self.home, {})
+        self.assertEqual(row["status"], common.ERROR)
+        self.assertEqual(row["error"], "refresh-locked")
+        self.assertEqual(request.calls, [])
+
+    def test_persist_failure_is_error(self):
+        write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "old-token", "refreshToken": "old-refresh",
+                                                        "expiresAt": PAST_EXP * 1000}})
+        request = FakeRequest({"oauth/token": common.Response(200, {"access_token": "new-token",
+                                                                    "refresh_token": "new-refresh",
+                                                                    "expires_in": 3600}),
+                               "oauth/usage": common.Response(200, load("claude_usage.json"))})
+        with mock.patch("providers.claude.os.replace", side_effect=OSError("boom")):
+            row = claude.collect(request, self.home, {})
+        self.assertEqual(row["status"], common.ERROR)
+        self.assertEqual(row["error"], "persist-write-failed")
+
+    def test_nonfinite_expires_in_rejected(self):
+        request = FakeRequest({"": common.Response(200, {"access_token": "new", "expires_in": "Infinity"})})
+        fields, error = claude.refresh_access_token(request, "refresh")
+        self.assertIsNone(fields)
+        self.assertEqual(error, "refresh-failed")
+
+    def test_whole_object_compare_detects_refresh_change(self):
+        path = write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "same", "refreshToken": "current"}})
+        status = claude.persist_rotation(str(path), {"accessToken": "same", "refreshToken": "old"},
+                                         {"access_token": "new"})
+        self.assertEqual(status, "changed")
+
     def test_concurrent_rotation_skip(self):
         path = write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "current-token", "refreshToken": "r"}})
-        written = claude.persist_rotation(str(path), {"accessToken": "stale-token"},
-                                          {"access_token": "new-token"})
-        self.assertFalse(written)
+        status = claude.persist_rotation(str(path), {"accessToken": "stale-token"},
+                                         {"access_token": "new-token"})
+        self.assertEqual(status, "changed")
         self.assertEqual(json.loads(path.read_text())["claudeAiOauth"]["accessToken"], "current-token")
 
     def test_invalid_utilization_is_not_zero(self):
@@ -297,6 +357,14 @@ class CursorTests(ProviderCase):
     def test_malformed_plan_usage_does_not_raise(self):
         self.assertEqual(cursor.parse({"planUsage": "bad"}), [])
 
+    def test_nonfinite_spend_is_ignored(self):
+        for spent in ("NaN", "-Infinity", "Infinity"):
+            write(self.home, self.AUTH, self.valid_auth())
+            routes = {"GetCurrentPeriodUsage": common.Response(200, {"planUsage": {"limit": 100, "totalSpend": spent}})}
+            row = cursor.collect(FakeRequest(routes), self.home, {})
+            self.assertNotEqual(row["status"], common.OK)
+            self.assertEqual(row["metrics"], [])
+
     def test_expired_auth(self):
         write(self.home, self.AUTH, {"accessToken": make_jwt(PAST_EXP)})
         request = FakeRequest(self.routes())
@@ -337,6 +405,10 @@ class SharedTests(unittest.TestCase):
         self.assertIsNone(common.percent("nope"))
         self.assertIsNone(common.metric("x", common.percent("bad")))
 
+    def test_percent_rejects_nonfinite(self):
+        for value in ("NaN", "Infinity", "-Infinity", float("inf"), float("nan")):
+            self.assertIsNone(common.percent(value))
+
     def test_reset_iso_epochs(self):
         self.assertTrue(common.reset_iso(1791732908).startswith("2026-"))
         self.assertTrue(common.reset_iso(1793080672462).startswith("2026-"))
@@ -347,6 +419,26 @@ class SharedTests(unittest.TestCase):
         self.assertEqual(common.jwt_exp(make_jwt(FUTURE_EXP)), FUTURE_EXP)
         self.assertIsNone(common.jwt_exp("not-a-jwt"))
         self.assertIsNone(common.jwt_exp(jwt({"alg": "none"}) + "." + jwt("scalar") + ".sig"))
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_model_merge_keeps_cache_across_failures(self):
+        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        script = source + """
+var rows = [];
+rows = mergeRows(rows, [{provider:"x",name:"X",abbrev:"X",status:"ok",plan:"P",
+  metrics:[{label:"S",percent:42,resetsAt:""}],resetAt:"",refreshedAt:"t1"}]);
+rows = mergeRows(rows, [{provider:"x",name:"X",abbrev:"X",status:"rate-limited",error:"http-429",
+  metrics:[],resetAt:"",refreshedAt:"t2"}]);
+rows = mergeRows(rows, [{provider:"x",name:"X",abbrev:"X",status:"rate-limited",error:"http-429",
+  metrics:[],resetAt:"",refreshedAt:"t3"}]);
+console.log(JSON.stringify({rows:rows, marked:markStale(rows)}));
+"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+        payload = json.loads(result.stdout)
+        for rows in (payload["rows"], payload["marked"]):
+            self.assertEqual(rows[0]["status"], "stale")
+            self.assertEqual(rows[0]["metrics"][0]["percent"], 42)
+            self.assertEqual(rows[0]["refreshedAt"], "t1")
 
     def test_collect_all_survives_a_broken_provider(self):
         class Boom:
@@ -379,7 +471,7 @@ class SharedTests(unittest.TestCase):
                 "GetPlanInfo": common.Response(200, load("cursor_plan.json")),
             }
 
-            def router(method, url, hosts, headers, body=None):
+            def router(method, url, hosts, headers, body=None, error_body=False):
                 host = urlsplit(url).hostname
                 return routes.get(host) or routes.get(url.rsplit("/", 1)[-1]) or common.Response(0, None, "network")
 

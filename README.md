@@ -65,12 +65,19 @@ error bodies are discarded, so nothing sensitive can leak through an error.
 When Claude Code's access token is expired — or the usage call returns 401 —
 the collector POSTs the refresh token to
 `https://platform.claude.com/v1/oauth/token` and uses the rotated access
-token. Because the Claude Code CLI reuses the stored refresh token, the
-rotation is written back to `~/.claude/.credentials.json`: all other keys are
-preserved, the write is a temp file in the same directory with mode `0600`
-followed by `os.replace`, and the file is re-read first so a rotation by
-another process is left untouched. This is the only token this plugin ever
-persists; it is never logged or passed on the command line.
+token. The whole rotation runs under Claude Code's own refresh lock
+(`~/.claude/.oauth_refresh.lock`, the same directory lock `proper-lockfile`
+uses with a 60-second stale window): the credential file is re-read under the
+lock, and if another process already rotated it the new value is adopted
+instead of refreshed. If the lock is already held, no refresh is attempted and
+the row reads `refresh-locked` (shown as stale with the last good values).
+
+A successful rotation is written back to `~/.claude/.credentials.json`: all
+other keys are preserved, the write is a temp file in the same directory at
+mode `0600` followed by `os.replace`, and the whole `claudeAiOauth` object is
+compared so a concurrent change is never overwritten. If the write fails the
+row is an error (`persist-write-failed`), never `ok`. This is the only token
+this plugin ever persists; it is never logged or passed on the command line.
 
 ## Status behavior
 

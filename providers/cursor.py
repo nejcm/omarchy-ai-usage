@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 
 from . import common
@@ -35,12 +36,11 @@ def read_credentials(home: str, env: dict):
 
 
 def _derived_total(plan_usage: dict):
-    """Total percent from limit and spend when the API omits the percentage."""
     try:
         limit = float(plan_usage.get("limit"))
     except (TypeError, ValueError):
         return None
-    if limit <= 0:
+    if not math.isfinite(limit) or limit <= 0:
         return None
     spent = plan_usage.get("totalSpend")
     if spent is None:
@@ -52,7 +52,12 @@ def _derived_total(plan_usage: dict):
         spent = float(spent)
     except (TypeError, ValueError):
         return None
-    return max(0.0, min(100.0, spent / limit * 100.0))
+    if not math.isfinite(spent):
+        return None
+    result = spent / limit * 100.0
+    if not math.isfinite(result):
+        return None
+    return max(0.0, min(100.0, result))
 
 
 def parse(payload: dict) -> list:

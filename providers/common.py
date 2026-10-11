@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import time
 from datetime import datetime, timezone
 
@@ -38,7 +39,7 @@ def percent(value) -> float | None:
         number = float(str(value).strip().replace("%", ""))
     except (TypeError, ValueError):
         return None
-    if number != number:
+    if not math.isfinite(number):
         return None
     return max(0.0, min(100.0, number))
 

@@ -26,7 +26,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(_NoRedirect)
 
 
-def request(method: str, url: str, hosts, headers: dict, body=None, timeout: float = TIMEOUT):
+def request(method: str, url: str, hosts, headers: dict, body=None, timeout: float = TIMEOUT, error_body: bool = False):
     """One allow-listed, non-redirecting HTTP call returning a bounded Response."""
     if urlsplit(url).hostname not in hosts:
         return common.Response(0, None, "host-not-allowed")
@@ -45,7 +45,13 @@ def request(method: str, url: str, hosts, headers: dict, body=None, timeout: flo
                 data = None
             return common.Response(response.status, data)
     except urllib.error.HTTPError as error:
-        return common.Response(error.code, None)
+        data = None
+        if error_body:
+            try:
+                data = json.loads(error.read(4096).decode("utf-8", "replace"))
+            except (ValueError, OSError):
+                data = None
+        return common.Response(error.code, data)
     except (socket.timeout, TimeoutError):
         return common.Response(0, None, "timeout")
     except urllib.error.URLError:

@@ -27,9 +27,9 @@ BarWidget {
     usageProcess.running = true
   }
 
-  // Timer and panel-open refreshes are interval-gated; only refresh() is ungated.
+  // Timer and panel-open refreshes are interval-gated from the last attempt.
   function refreshIfStale() {
-    if (!loadedOnce || Date.now() - lastAttemptMs >= refreshMs) refresh()
+    if (lastAttemptMs === 0 || Date.now() - lastAttemptMs >= refreshMs) refresh()
   }
 
   function applyOutput(text) {
