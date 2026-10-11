@@ -278,12 +278,17 @@ Panel {
                       height: Style.space(7)
                       readonly property real gap: Style.space(3)
                       readonly property real fillWidth: Math.round(width * Math.min(1, Math.max(0, Number(metric.modelData.percent || 0) / 100)))
+                      readonly property color fillColor: root.hostWidget && root.hostWidget.colorWarnings && Number(metric.modelData.percent) >= root.hostWidget.warningThreshold ? Model.usageColor(100) : Model.usageColor(metric.modelData.percent)
 
                       Rectangle {
                         width: meter.fillWidth
                         height: parent.height
                         radius: Style.space(2)
-                        color: root.hostWidget && root.hostWidget.colorWarnings && Number(metric.modelData.percent) >= root.hostWidget.warningThreshold ? Model.usageColor(100) : Model.usageColor(metric.modelData.percent)
+                        gradient: Gradient {
+                          orientation: Gradient.Vertical
+                          GradientStop { position: 0; color: Qt.lighter(meter.fillColor, 1.12) }
+                          GradientStop { position: 1; color: Qt.darker(meter.fillColor, 1.08) }
+                        }
 
                         Behavior on width {
                           NumberAnimation {

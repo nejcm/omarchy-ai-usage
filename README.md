@@ -12,6 +12,10 @@ The bar shows each provider's most-used limit. Click it to see every available
 limit, your plan, and when your allowance resets. The panel stays within 60%
 of the screen height and scrolls when needed.
 
+![AI usage in the Omarchy bar](assets/screen-1.png)
+
+![AI usage panel with provider limits and reset times](assets/screen-2.png)
+
 ## User guide
 
 ### What you can do
@@ -47,8 +51,6 @@ git clone https://github.com/nejcm/omarchy-ai-usage.git "$HOME/.config/omarchy/p
 omarchy-shell shell rescanPlugins
 omarchy plugin enable io.github.nejcm.ai-usage --section right
 ```
-
-Repository access is required while the GitHub repository is private.
 
 Sign in through the coding tools you use, then click the usage widget. All
 four providers are enabled initially. Turn off the ones you do not use in
@@ -143,6 +145,12 @@ To remove the widget from the bar without deleting the checkout or credentials:
 
 ```sh
 omarchy plugin disable io.github.nejcm.ai-usage
+```
+
+To remove the installed plugin and its checkout:
+
+```sh
+omarchy plugin remove io.github.nejcm.ai-usage
 ```
 
 ## Contributing and development
