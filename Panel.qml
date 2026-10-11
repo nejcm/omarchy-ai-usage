@@ -86,17 +86,29 @@ Panel {
         Item {
           id: header
           width: parent.width
-          height: Math.max(titleText.implicitHeight, headerActions.implicitHeight)
+          height: Math.max(titleColumn.implicitHeight, headerActions.implicitHeight)
 
-          Text {
-            id: titleText
+          Column {
+            id: titleColumn
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
-            text: root.settingsOpen ? "Settings" : "AI subscription usage"
-            color: root.contentForeground
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.subtitle
-            font.bold: true
+            spacing: Style.space(4)
+
+            Text {
+              text: root.settingsOpen ? "Settings" : "AI subscription usage"
+              color: root.contentForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.subtitle
+              font.bold: true
+            }
+
+            Text {
+              visible: !root.settingsOpen && (root.refreshedAt !== "" || root.refreshing)
+              text: root.refreshing ? "refreshing…" : "Updated " + Model.clockText(root.refreshedAt)
+              color: root.dimForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+            }
           }
 
           Row {
@@ -156,14 +168,6 @@ Panel {
             spacing: Style.space(16)
 
             Text {
-              visible: root.refreshedAt !== "" || root.refreshing
-              text: root.refreshing ? "refreshing…" : "Updated " + Model.clockText(root.refreshedAt)
-              color: root.dimForeground
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.caption
-            }
-
-            Text {
               visible: root.rows.length === 0
               width: parent.width
               text: root.hostWidget && root.hostWidget.enabledProviders.length === 0 ? "No providers enabled" : root.refreshing ? "Loading…" : "No usage data yet"
@@ -200,7 +204,8 @@ Panel {
                     anchors.verticalCenter: nameText.verticalCenter
                     width: nameText.implicitHeight
                     height: width
-                    sourceSize: Qt.size(width * 2, width * 2)
+                    fillMode: Image.PreserveAspectFit
+                    sourceSize: Qt.size(-1, height * 2)
                     source: Qt.resolvedUrl("assets/" + Model.logo(card.modelData.provider, card.modelData.provider === "codex" || card.modelData.provider === "cursor"))
                   }
 
