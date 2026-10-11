@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.nejcm.ai-usage",
+  "name": "AI usage",
+  "version": "0.1.0",
+  "author": "Nejc",
+  "license": "MIT",
+  "description": "Subscription quota for Claude Code, Codex, OpenCode, and Cursor in an Omarchy bar panel.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "AI usage",
+    "description": "Per-provider plan usage percentages with reset countdowns.",
+    "category": "AI",
+    "aliases": ["ai-usage", "agent-usage"],
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
