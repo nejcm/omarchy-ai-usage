@@ -1,8 +1,4 @@
-"""Cursor subscription usage via Cursor's dashboard Connect endpoints.
-
-Reads the CLI/agent token from ~/.config/cursor/auth.json. The token is used
-read-only; refreshing it would rewrite that file, which this helper never does.
-"""
+"""Cursor subscription usage via Cursor's dashboard Connect endpoints."""
 
 from __future__ import annotations
 
@@ -38,16 +34,42 @@ def read_credentials(home: str, env: dict):
     return {"access_token": token}, None
 
 
+def _derived_total(plan_usage: dict):
+    """Total percent from limit and spend when the API omits the percentage."""
+    try:
+        limit = float(plan_usage.get("limit"))
+    except (TypeError, ValueError):
+        return None
+    if limit <= 0:
+        return None
+    spent = plan_usage.get("totalSpend")
+    if spent is None:
+        try:
+            spent = limit - float(plan_usage.get("remaining"))
+        except (TypeError, ValueError):
+            return None
+    try:
+        spent = float(spent)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, min(100.0, spent / limit * 100.0))
+
+
 def parse(payload: dict) -> list:
-    plan_usage = payload.get("planUsage") or {}
+    plan_usage = payload.get("planUsage")
+    if not isinstance(plan_usage, dict):
+        plan_usage = {}
     reset = common.reset_iso(payload.get("billingCycleEnd"))
     metrics = []
-    for key, label in (("totalPercentUsed", "Total usage"),
-                       ("autoPercentUsed", "Cursor models"),
-                       ("apiPercentUsed", "Other models")):
-        value = common.percent(plan_usage.get(key))
-        if value is not None:
-            metrics.append(common.metric(label, value, reset))
+    total = common.percent(plan_usage.get("totalPercentUsed"))
+    if total is None:
+        total = _derived_total(plan_usage)
+    if total is not None:
+        metrics.append(common.metric("Total usage", total, reset))
+    for key, label in (("autoPercentUsed", "Cursor models"), ("apiPercentUsed", "Other models")):
+        metric = common.metric(label, common.percent(plan_usage.get(key)), reset)
+        if metric:
+            metrics.append(metric)
     return metrics
 
 
@@ -79,8 +101,9 @@ def collect(request, home: str, env: dict) -> dict:
     plan = ""
     plan_response = request("POST", PLAN_URL, HOSTS, headers, body=b"{}")
     if plan_response.status == 200 and isinstance(plan_response.data, dict):
-        info = plan_response.data.get("planInfo") or {}
-        plan = str(info.get("planName") or "").strip()
+        info = plan_response.data.get("planInfo")
+        if isinstance(info, dict):
+            plan = str(info.get("planName") or "").strip()
 
     metrics = parse(response.data)
     if not metrics:

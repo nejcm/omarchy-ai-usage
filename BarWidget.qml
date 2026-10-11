@@ -15,20 +15,21 @@ BarWidget {
   property string refreshedAt: ""
   property bool refreshing: false
   property bool loadedOnce: false
-  property double lastRefreshMs: 0
+  property double lastAttemptMs: 0
 
-  readonly property int refreshMs: Math.max(60, Number(setting("refreshIntervalSec", 300))) * 1000
+  readonly property int refreshMs: Math.max(300, Number(setting("refreshIntervalSec", 300))) * 1000
   readonly property string script: Qt.resolvedUrl("usage.py").toString().replace("file://", "")
 
   function refresh() {
     if (usageProcess.running) return
+    lastAttemptMs = Date.now()
     refreshing = true
     usageProcess.running = true
   }
 
-  // Opening the panel refreshes only when the cache is older than the interval.
+  // Timer and panel-open refreshes are interval-gated; only refresh() is ungated.
   function refreshIfStale() {
-    if (!loadedOnce || Date.now() - lastRefreshMs > refreshMs) refresh()
+    if (!loadedOnce || Date.now() - lastAttemptMs >= refreshMs) refresh()
   }
 
   function applyOutput(text) {
@@ -37,13 +38,18 @@ BarWidget {
     try {
       parsed = JSON.parse(String(text || ""))
     } catch (error) {
+      parsed = null
+    }
+    if (!parsed || !Array.isArray(parsed.providers)) {
+      if (root.rows.length > 0) root.rows = Model.markStale(root.rows)
       return
     }
-    if (!parsed || !parsed.providers) return
-    rows = parsed.providers
-    refreshedAt = parsed.refreshedAt || ""
-    lastRefreshMs = Date.now()
-    loadedOnce = true
+    var incoming = parsed.providers
+    var anyOk = false
+    for (var i = 0; i < incoming.length; i++) if (incoming[i].status === "ok") anyOk = true
+    root.rows = Model.mergeRows(root.rows, incoming)
+    if (anyOk && parsed.refreshedAt) root.refreshedAt = parsed.refreshedAt
+    root.loadedOnce = true
   }
 
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
@@ -87,7 +93,10 @@ BarWidget {
       waitForEnd: true
       onStreamFinished: root.applyOutput(text)
     }
-    onExited: root.refreshing = false
+    onExited: function(exitCode, exitStatus) {
+      root.refreshing = false
+      if (exitCode !== 0 && root.rows.length > 0) root.rows = Model.markStale(root.rows)
+    }
   }
 
   Timer {
@@ -95,7 +104,7 @@ BarWidget {
     repeat: true
     running: true
     triggeredOnStart: true
-    onTriggered: root.refresh()
+    onTriggered: root.refreshIfStale()
   }
 
   Loader {
@@ -107,17 +116,6 @@ BarWidget {
       root.injectPanel()
       Qt.callLater(root.injectPanel)
     }
-  }
-
-  IpcHandler {
-    target: "io.github.nejcm.ai-usage"
-
-    function open(): void { root.open() }
-    function close(): void { root.close() }
-    function show(): void { root.open() }
-    function hide(): void { root.close() }
-    function toggle(): void { root.togglePanel() }
-    function refresh(): void { root.refresh() }
   }
 
   WidgetButton {

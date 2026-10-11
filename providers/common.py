@@ -1,6 +1,4 @@
-"""Shared, provider-agnostic pieces: normalized row shape, percent/reset
-parsing, JWT expiry, and HTTP-status/transport error mapping. No network here.
-"""
+"""Provider-agnostic row shape, parsing, and HTTP-status mapping. No network."""
 
 from __future__ import annotations
 
@@ -18,9 +16,7 @@ ERROR = "error"
 
 
 class Response:
-    """Result of one HTTP call. A transport failure is status 0 with an error
-    code; an HTTP error status carries no body, so nothing sensitive can leak.
-    """
+    """Result of one HTTP call: status plus parsed JSON, or a bounded error."""
 
     __slots__ = ("status", "data", "error")
 
@@ -94,6 +90,8 @@ def jwt_exp(token: str) -> float | None:
         payload = token.split(".")[1]
         payload += "=" * (-len(payload) % 4)
         claims = json.loads(base64.urlsafe_b64decode(payload))
+        if not isinstance(claims, dict):
+            return None
         exp = claims.get("exp")
         return float(exp) if exp is not None else None
     except (IndexError, ValueError, TypeError, json.JSONDecodeError):
@@ -105,8 +103,11 @@ def is_expired_jwt(token: str) -> bool:
     return exp is not None and exp <= time.time()
 
 
-def metric(label: str, pct: float | None, resets_at: str = "") -> dict:
-    return {"label": label, "percent": 0.0 if pct is None else pct, "resetsAt": resets_at}
+def metric(label: str, pct: float | None, resets_at: str = "") -> dict | None:
+    """A metric, or None when the percentage is missing or unparseable."""
+    if pct is None:
+        return None
+    return {"label": label, "percent": pct, "resetsAt": resets_at}
 
 
 def row(
@@ -118,8 +119,8 @@ def row(
     metrics: list | None = None,
     error: str = "",
 ) -> dict:
-    metrics = metrics or []
-    resets = [m["resetsAt"] for m in metrics if m.get("resetsAt")]
+    clean = [m for m in (metrics or []) if isinstance(m, dict)]
+    resets = [m["resetsAt"] for m in clean if m.get("resetsAt")]
     return {
         "provider": provider,
         "name": name,
@@ -127,7 +128,7 @@ def row(
         "plan": plan,
         "status": status,
         "error": error,
-        "metrics": metrics,
+        "metrics": clean,
         "resetAt": min(resets) if resets else "",
         "refreshedAt": now_iso(),
     }
@@ -138,9 +139,7 @@ def error_row(provider: str, name: str, abbrev: str, code: str, plan: str = "") 
 
 
 def status_row(provider: str, name: str, abbrev: str, response: Response, plan: str = "") -> dict:
-    """Map an HTTP response status to a bounded row. 429 is rate-limited,
-    401/403 read as an expired login, everything else is a generic error.
-    """
+    """Map an HTTP status to a bounded row: 429 rate-limited, 401/403 expired."""
     if response.status == 0:
         return error_row(provider, name, abbrev, response.error or "network", plan)
     if response.status == 429:

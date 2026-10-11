@@ -13,6 +13,8 @@ NAME = "Codex"
 ABBREV = "X"
 HOSTS = ("chatgpt.com",)
 USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
+SESSION_SECONDS = 18000
+WEEKLY_SECONDS = 604800
 
 
 def credentials_path(home: str, env: dict) -> str:
@@ -28,13 +30,16 @@ def read_credentials(home: str, env: dict):
         return None, common.NOT_SIGNED_IN
     except (OSError, ValueError):
         return None, "malformed-auth"
-    tokens = data.get("tokens") if isinstance(data, dict) else None
-    token = str((tokens or {}).get("access_token") or "").strip()
+    document = data if isinstance(data, dict) else {}
+    tokens = document.get("tokens")
+    if not isinstance(tokens, dict):
+        tokens = {}
+    token = str(tokens.get("access_token") or "").strip()
     if not token:
-        if str(data.get("OPENAI_API_KEY") or "").strip():
+        if str(document.get("OPENAI_API_KEY") or "").strip():
             return None, "api-key-auth"
         return None, common.NOT_SIGNED_IN
-    return {"access_token": token, "account_id": str((tokens or {}).get("account_id") or "").strip()}, None
+    return {"access_token": token, "account_id": str(tokens.get("account_id") or "").strip()}, None
 
 
 def format_plan(value) -> str:
@@ -45,12 +50,45 @@ def format_plan(value) -> str:
     return table.get(raw.lower(), raw.replace("_", " ").title())
 
 
+def _kind(window: dict):
+    try:
+        seconds = float(window.get("limit_window_seconds"))
+    except (TypeError, ValueError):
+        return None
+    if seconds == SESSION_SECONDS:
+        return "session"
+    if seconds == WEEKLY_SECONDS:
+        return "weekly"
+    return None
+
+
+def _pick(candidates: list, kind: str):
+    for window, fallback, exact in candidates:
+        if exact == kind:
+            return window
+    for window, fallback, exact in candidates:
+        if exact is None and fallback == kind:
+            return window
+    return None
+
+
 def parse(payload: dict) -> list:
-    rate_limit = payload.get("rate_limit") or {}
-    metrics = []
-    for key, label in (("primary_window", "Session"), ("secondary_window", "Weekly")):
+    rate_limit = payload.get("rate_limit")
+    if not isinstance(rate_limit, dict):
+        rate_limit = {}
+    candidates = []
+    for key, fallback in (("primary_window", "session"), ("secondary_window", "weekly")):
         window = rate_limit.get(key)
-        if not isinstance(window, dict) or window.get("used_percent") is None:
+        if isinstance(window, dict) and window.get("used_percent") is not None:
+            candidates.append((window, fallback, _kind(window)))
+
+    metrics = []
+    for kind, label in (("session", "Session"), ("weekly", "Weekly")):
+        window = _pick(candidates, kind)
+        if window is None:
+            continue
+        pct = common.percent(window.get("used_percent"))
+        if pct is None:
             continue
         reset = common.reset_iso(window.get("reset_at"))
         if not reset and window.get("reset_after_seconds") is not None:
@@ -58,7 +96,9 @@ def parse(payload: dict) -> list:
                 reset = common.reset_iso(time.time() + float(window["reset_after_seconds"]))
             except (TypeError, ValueError):
                 reset = ""
-        metrics.append(common.metric(label, common.percent(window.get("used_percent")), reset))
+        metric = common.metric(label, pct, reset)
+        if metric:
+            metrics.append(metric)
     return metrics
 
 

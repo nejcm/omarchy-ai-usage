@@ -14,6 +14,7 @@ Panel {
 
   property var anchorItem: null
   property var hostWidget: null
+  property double nowMs: Date.now()
   readonly property var barIdentity: hostWidget || root
 
   readonly property var rows: hostWidget ? hostWidget.rows : []
@@ -24,6 +25,7 @@ Panel {
   readonly property color dimForeground: Qt.darker(contentForeground, 1.5)
 
   function open() {
+    root.nowMs = Date.now()
     if (hostWidget && hostWidget.refreshIfStale) hostWidget.refreshIfStale()
     root.controller.show()
   }
@@ -32,6 +34,14 @@ Panel {
     if (root.bar && typeof root.bar.switchPanelFrom === "function")
       return root.bar.switchPanelFrom(root.barIdentity, direction)
     return false
+  }
+
+  // Keeps the reset countdowns live; Date.now() alone gives no binding dependency.
+  Timer {
+    interval: 30000
+    repeat: true
+    running: root.opened
+    onTriggered: root.nowMs = Date.now()
   }
 
   KeyboardPanel {
@@ -181,7 +191,7 @@ Panel {
 
                 Text {
                   visible: metric.modelData.resetsAt !== ""
-                  text: "resets in " + Model.resetText(metric.modelData.resetsAt)
+                  text: "resets in " + Model.resetText(metric.modelData.resetsAt, root.nowMs)
                   color: root.dimForeground
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.caption

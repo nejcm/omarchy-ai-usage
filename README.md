@@ -28,22 +28,24 @@ Reload the shell only if the panel does not appear after a re-scan
 ## How it works
 
 `BarWidget.qml` runs `usage.py` with the system `python3` on load, when the
-panel opens while the cache is stale, and at most every five minutes. The
-collector reads each provider's local credential file, calls that provider's
-one quota endpoint, and prints a normalized JSON document. The widget keeps
-the last good document in memory and shows it while a refresh runs, so one
-provider failing never hides the others.
+panel opens while the cache is stale, and at most every five minutes (the
+interval has a hard 300-second floor). The collector reads each provider's
+local credential file, calls that provider's one quota endpoint, and prints a
+normalized JSON document. The widget merges by provider, so a failed refresh
+keeps that provider's last good metrics and successful timestamp and marks the
+row `stale` instead of erasing it.
 
-`usage.py` is standard-library only: no daemon, no extra packages, no state
-written to disk. Credentials stay in memory and are used only in the
-`Authorization` header of the provider's own endpoint. Tokens never appear in
-stdout, stderr, process arguments, or any file.
+`usage.py` is standard-library only: no daemon, no extra packages. Credentials
+stay in memory and are used only in the `Authorization` header of the
+provider's own endpoint. Tokens never appear in stdout, stderr, process
+arguments, or logs. The one persisted secret is Claude Code's rotated OAuth
+token, described below.
 
 ## Providers
 
 | Provider | Credential file read | Host contacted | Window(s) |
 |---|---|---|---|
-| Claude Code | `~/.claude/.credentials.json` (`CLAUDE_CONFIG_DIR`) | `api.anthropic.com` | Session (5h), Weekly (7d) |
+| Claude Code | `~/.claude/.credentials.json` (`CLAUDE_CONFIG_DIR`) | `api.anthropic.com`, `platform.claude.com` | Session (5h), Weekly (7d) |
 | Codex | `~/.codex/auth.json` (`CODEX_HOME`) | `chatgpt.com` | Session, Weekly |
 | OpenCode | `~/.local/share/opencode/auth.json` (`XDG_DATA_HOME`, `OPENCODE_DATA_DIR`) | `opencode.ai` | Session, Weekly, Monthly |
 | Cursor | `~/.config/cursor/auth.json` (`XDG_CONFIG_HOME`) | `api2.cursor.sh` | Total usage, Cursor models, Other models |
@@ -53,27 +55,37 @@ path, allowed hosts, fetch, and response parser. Adding a provider is one new
 module, its fixtures, and one line in `providers/__init__.py`.
 
 The shared transport in `usage.py` enforces a per-provider host allow-list, a
-10-second timeout, and bounded status/error codes
+10-second timeout, no HTTP redirects (so an `Authorization` header is never
+forwarded to another host), and bounded status/error codes
 (`not-signed-in`, `expired`, `unavailable`, `rate-limited`, `error`). HTTP
 error bodies are discarded, so nothing sensitive can leak through an error.
 
+## Claude OAuth refresh (the one persisted secret)
+
+When Claude Code's access token is expired — or the usage call returns 401 —
+the collector POSTs the refresh token to
+`https://platform.claude.com/v1/oauth/token` and uses the rotated access
+token. Because the Claude Code CLI reuses the stored refresh token, the
+rotation is written back to `~/.claude/.credentials.json`: all other keys are
+preserved, the write is a temp file in the same directory with mode `0600`
+followed by `os.replace`, and the file is re-read first so a rotation by
+another process is left untouched. This is the only token this plugin ever
+persists; it is never logged or passed on the command line.
+
 ## Status behavior
 
-- `not-signed-in` — no credential file, or no usable token in it.
-- `expired` — the stored token is past its own expiry. The collector does not
-  refresh tokens: minting one would rewrite the CLI's credential file, which
-  this read-only helper never does. Run the CLI (`claude`, `codex`, …) once to
-  refresh its login.
+- `not-signed-in` — no credential file, no usable token, or a Claude refresh
+  rejected with `invalid_grant`.
+- `expired` — a token is past its own expiry and could not be refreshed (for
+  example Codex or Cursor, whose rotation is owned by their CLI and not
+  written here). Run the CLI once to refresh its login.
+- `stale` — the last refresh failed; the previously fetched metrics are kept.
 - `unavailable` — a valid credential with no quotable subscription (for
   example a Codex API key instead of an OAuth login, or an OpenCode key with
   no Go plan).
 - `rate-limited` — the provider returned HTTP 429.
 - `error` — malformed credential storage or response, or a network failure,
   with the bounded code in the panel.
-
-Claude Code currently needs an active `claude` login: its access token is
-short-lived and only the CLI refreshes it. Until then the row reads
-`sign-in expired`.
 
 ## Known limitations
 

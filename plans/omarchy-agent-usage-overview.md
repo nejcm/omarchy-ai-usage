@@ -12,7 +12,7 @@ Use Omarchy's user plugin directory and existing Quickshell process. Do not buil
 - Show session and weekly usage when the provider reports them, plus reset countdown and last successful refresh.
 - Refresh when the panel opens, then at most every five minutes. Show cached values while a refresh runs.
 - Show `Not signed in`, `Unavailable`, or `Stale` per provider. One provider failure must not hide the others.
-- Read credentials only from the known agent config locations. Keep tokens in memory, send them only to the provider's documented or observed first-party endpoint, and never write or log them.
+- Read credentials only from the known agent config locations. Keep tokens in memory, send them only to the provider's documented or observed first-party endpoint, and never log them. One exception: Claude Code's rotated OAuth token is written back to `~/.claude/.credentials.json` (atomic, `0600`) because the CLI reuses the stored refresh token; see README.
 - No telemetry, account sync, spend estimation, API-key entry, provider actions, or arbitrary endpoint configuration.
 
 ## Implementation shape
@@ -50,7 +50,7 @@ The normalized row should contain only `provider`, `plan`, `metrics[]`, `resetAt
 - Missing auth, network failure, rate limits, and malformed data produce clear per-provider states and preserve the last good value as stale.
 - Refresh and provider parsing do not block the shell UI.
 - Tests use fixtures and make no provider network calls.
-- No secrets are persisted, emitted in logs, included in process arguments, or sent to any host outside the provider allow-list.
+- No secrets are emitted in logs, included in process arguments, or sent to any host outside the provider allow-list. The one persisted secret is Claude Code's rotated OAuth token, written atomically to `~/.claude/.credentials.json` because the CLI requires it; no other token is ever written.
 
 ## Risks and limits
 

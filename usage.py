@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""One-shot collector for local AI agent subscription usage.
-
-Reads each provider's local credential file, queries that provider's quota
-endpoint, and prints one normalized JSON document. Tokens never reach stdout,
-stderr, argv, or disk; error paths carry bounded codes only.
-"""
+"""One-shot collector: read local agent credentials, print normalized usage JSON."""
 
 from __future__ import annotations
 
@@ -23,19 +18,26 @@ from providers import common
 TIMEOUT = 10
 
 
-def request(method: str, url: str, hosts, headers: dict, body=None, timeout: float = TIMEOUT):
-    """Perform one HTTP call, refusing any host outside the provider's list.
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
-    Returns a common.Response; transport failures and disallowed hosts become a
-    status-0 response with a bounded error code rather than an exception.
-    """
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def request(method: str, url: str, hosts, headers: dict, body=None, timeout: float = TIMEOUT):
+    """One allow-listed, non-redirecting HTTP call returning a bounded Response."""
     if urlsplit(url).hostname not in hosts:
         return common.Response(0, None, "host-not-allowed")
     merged = {"User-Agent": "omarchy-ai-usage/1.0", "Accept": "application/json"}
     merged.update(headers)
-    http_request = urllib.request.Request(url, data=body, method=method, headers=merged)
+    for value in merged.values():
+        if any(char in str(value) for char in "\r\n\0"):
+            return common.Response(0, None, "invalid-auth")
     try:
-        with urllib.request.urlopen(http_request, timeout=timeout) as response:
+        http_request = urllib.request.Request(url, data=body, method=method, headers=merged)
+        with _OPENER.open(http_request, timeout=timeout) as response:
             raw = response.read()
             try:
                 data = json.loads(raw.decode("utf-8", "replace"))
@@ -48,7 +50,9 @@ def request(method: str, url: str, hosts, headers: dict, body=None, timeout: flo
         return common.Response(0, None, "timeout")
     except urllib.error.URLError:
         return common.Response(0, None, "network")
-    except OSError:
+    except ValueError:
+        return common.Response(0, None, "invalid-request")
+    except Exception:
         return common.Response(0, None, "network")
 
 
@@ -56,7 +60,13 @@ def collect_all(home: str, env: dict, request_fn=request, select=None) -> list:
     modules = providers.REGISTRY
     if select:
         modules = [module for module in modules if module.ID in select]
-    return [module.collect(request_fn, home, env) for module in modules]
+    rows = []
+    for module in modules:
+        try:
+            rows.append(module.collect(request_fn, home, env))
+        except Exception:
+            rows.append(common.error_row(module.ID, module.NAME, module.ABBREV, "internal-error"))
+    return rows
 
 
 def main(argv=None) -> int:
