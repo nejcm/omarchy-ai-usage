@@ -171,6 +171,13 @@ BarWidget {
     }
   }
 
+  // usage.py timeouts are per socket read; cap the whole run here.
+  Timer {
+    interval: 60000
+    running: usageProcess.running
+    onTriggered: usageProcess.running = false
+  }
+
   Timer {
     interval: root.refreshMs
     repeat: true

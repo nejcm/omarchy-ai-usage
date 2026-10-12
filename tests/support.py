@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from providers import claude, common  # noqa: E402
+from providers import common  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FUTURE_EXP = 4102444800
@@ -29,7 +29,10 @@ def make_jwt(exp):
 
 
 class FakeRequest:
-    """Routes a request to a Response by URL substring; records calls."""
+    """Routes a request to a Response by URL substring; records calls.
+
+    A list-valued route is consumed one response per call; the last repeats.
+    """
 
     def __init__(self, routes):
         self.routes = routes
@@ -39,6 +42,8 @@ class FakeRequest:
         self.calls.append({"method": method, "url": url, "hosts": tuple(hosts), "headers": dict(headers)})
         for needle, response in self.routes.items():
             if needle in url:
+                if isinstance(response, list):
+                    return response.pop(0) if len(response) > 1 else response[0]
                 return response
         return common.Response(0, None, "network")
 
@@ -56,9 +61,3 @@ class ProviderCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.home = self._tmp.name
         self.addCleanup(self._tmp.cleanup)
-
-    def rotation_lock(self, path):
-        lock = claude._RefreshLock(str(path.parent / claude.LOCK_NAME))
-        self.assertTrue(lock.acquire())
-        self.addCleanup(lock.release)
-        return lock

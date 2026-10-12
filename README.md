@@ -263,10 +263,11 @@ real tokens or unredacted responses.
 ### Transport safeguards
 
 The shared transport uses a per-provider host allow-list, a 10-second default
-timeout, and no HTTP redirects. Authorization headers cannot be forwarded to
-another host. Errors use bounded codes rather than raw server responses.
-Claude OAuth refresh can inspect a small response body to recognize a rejected
-refresh; that body is not included in usage output.
+timeout per socket operation, and no HTTP redirects. A run that exceeds 60
+seconds is stopped by the bar widget with SIGTERM. Authorization headers
+cannot be forwarded to another host. Errors use bounded codes rather than raw
+server responses. Claude OAuth refresh can inspect a small response body to
+recognize a rejected refresh; that body is not included in usage output.
 
 | Provider | Allowed hosts |
 | --- | --- |
@@ -304,11 +305,18 @@ and persisted even if the child exits after the deadline. `refresh-timeout`
 means no complete response was recovered; the server may already have rotated
 the token, so run Claude Code to recover the login rather than retrying here.
 
+SIGTERM is blocked from before the refresh lock is taken until the rotation is
+persisted and the lock released, so the widget's 60-second stop never discards
+a rotated token; that window is bounded by the 20-second deadline plus
+cancellation. A shell reload or widget teardown kills the collector with
+SIGKILL, which can still lose an in-flight rotation.
+
 A successful rotation is written back to `~/.claude/.credentials.json`: all
 other keys are preserved, the write is a temp file in the same directory at
 mode `0600` followed by `os.replace`, and the whole `claudeAiOauth` object is
-compared, and ownership is checked immediately before replacement. Ownership
-loss returns `lock-lost` without replacing credentials. If the write fails the
-row is an error (`persist-write-failed`), never `ok`. This is the only token
-this plugin ever persists; it is never logged or passed on the command line.
-An invalid refresh expiry is ignored while the rotated tokens are saved.
+compared before the temp write and again immediately before `os.replace`.
+Once the exchange succeeded the rotation is saved even if the lock was lost,
+since the old refresh token is already dead. If the write fails the row is an
+error (`persist-write-failed`), never `ok`. This is the only token this plugin
+ever persists; it is never logged or passed on the command line. An invalid
+refresh expiry is ignored while the rotated tokens are saved.

@@ -265,6 +265,7 @@ def _capture(func, result):
     response = None
     timed_out = False
     signal.signal(signal.SIGTERM, _interrupt_exchange)
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM})
     try:
         response = func()
     except _ExchangeTimeout:
@@ -347,8 +348,8 @@ def _requested_scopes(oauth: dict) -> str:
     return SCOPES
 
 
-def persist_rotation(path: str, original: dict, rotated: dict, lock: _RefreshLock) -> str:
-    """Atomically write rotated tokens only while the refresh lock is owned."""
+def persist_rotation(path: str, original: dict, rotated: dict) -> str:
+    """Atomically write rotated tokens when the credentials still match the exchange."""
     access = str(rotated.get("access_token") or "").strip()
     if not access:
         return "write-failed"
@@ -376,10 +377,10 @@ def persist_rotation(path: str, original: dict, rotated: dict, lock: _RefreshLoc
         os.fchmod(handle_fd, 0o600)
         with os.fdopen(handle_fd, "w", encoding="utf-8") as handle:
             json.dump(updated, handle)
-        with lock._mutex:
-            if not lock.still_owned():
-                return "lock-lost"
-            os.replace(tmp_path, path)
+        latest, error = _read_oauth(path)
+        if error or latest != original:
+            return "changed"
+        os.replace(tmp_path, path)
     except OSError:
         return "write-failed"
     finally:
@@ -392,34 +393,35 @@ def persist_rotation(path: str, original: dict, rotated: dict, lock: _RefreshLoc
 
 def _refresh_locked(request, path: str, original: dict, refresh_token: str):
     lock = _RefreshLock(os.path.join(os.path.dirname(path) or ".", LOCK_NAME))
-    if not lock.acquire():
-        return None, "refresh-locked", False
+    # SIGTERM stays pending until the rotation is persisted and the lock released.
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
     try:
-        current, error = _read_oauth(path)
-        if error:
-            return None, "reread-failed", False
-        if current != original:
-            return current, None, True
-        if not lock.still_owned():
-            return None, "lock-lost", False
-        fields, error = refresh_access_token(request, refresh_token, lock, _requested_scopes(original))
-        if error:
-            return None, error, False
-        if not lock.still_owned():
-            return None, "lock-lost", False
-        status = persist_rotation(path, original, fields, lock)
-        if status == "lock-lost":
-            return None, status, False
-        if status == "changed":
-            current, _ = _read_oauth(path)
-            if current is not None:
-                return current, None, True
-            return None, "persist-changed", False
-        if status != "ok":
-            return None, "persist-" + status, False
-        return _apply_rotation(original, fields), None, False
+        if not lock.acquire():
+            return None, "refresh-locked"
+        try:
+            current, error = _read_oauth(path)
+            if error:
+                return None, "reread-failed"
+            if current != original:
+                return current, None
+            if not lock.still_owned():
+                return None, "lock-lost"
+            fields, error = refresh_access_token(request, refresh_token, lock, _requested_scopes(original))
+            if error:
+                return None, error
+            status = persist_rotation(path, original, fields)
+            if status == "changed":
+                current, _ = _read_oauth(path)
+                if current is not None:
+                    return current, None
+                return None, "persist-changed"
+            if status != "ok":
+                return None, "persist-" + status
+            return _apply_rotation(original, fields), None
+        finally:
+            lock.release()
     finally:
-        lock.release()
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
 
 
 def _refresh_result(error, plan: str):
@@ -449,26 +451,17 @@ def collect(request, home: str, env: dict) -> dict:
     plan = plan_label(oauth)
     refresh_token = str(oauth.get("refreshToken") or "").strip()
     token = str(oauth.get("accessToken")).strip()
-    attempted = False
+    expired = common.is_expired_ms(oauth.get("expiresAt"))
 
-    if common.is_expired_ms(oauth.get("expiresAt")):
-        attempted = True
-        refreshed, error, _ = _refresh_locked(request, path, oauth, refresh_token)
+    response = None if expired else _usage(request, token)
+    if expired or response.status == 401:
+        refreshed, error = _refresh_locked(request, path, oauth, refresh_token)
         row = _refresh_result(error, plan)
         if row:
             return row
         if refreshed:
             token = str(refreshed.get("accessToken") or token).strip()
-
-    response = _usage(request, token)
-    if response.status == 401 and not attempted:
-        attempted = True
-        refreshed, error, _ = _refresh_locked(request, path, oauth, refresh_token)
-        row = _refresh_result(error, plan)
-        if row:
-            return row
-        if refreshed:
-            token = str(refreshed.get("accessToken") or token).strip()
+        if refreshed or expired:
             response = _usage(request, token)
 
     if response.status != 200:

@@ -108,7 +108,6 @@ var ERROR_TEXT = {
   "host-not-allowed": "Blocked provider host",
   "invalid-auth": "Invalid credentials",
   "invalid-request": "Invalid request",
-  "unreadable": "Credentials unreadable",
   "malformed-auth": "Credentials unreadable",
   "malformed-response": "Malformed provider response",
   "no-data": "No subscription data",
@@ -123,10 +122,7 @@ var ERROR_TEXT = {
   "persist-changed": "Credentials changed during refresh",
   "persist-unreadable": "Credentials unreadable",
   "persist-write-failed": "Could not save refreshed sign-in",
-  "persist-lock-lost": "Credential lock lost during refresh",
-  "write-failed": "Could not save credentials",
   "lock-lost": "Credential lock lost",
-  "exchange-failed": "Sign-in refresh interrupted",
   "internal-error": "Collector error",
   "not-signed-in": "Not signed in",
   "unavailable": "Unavailable",
@@ -217,9 +213,7 @@ function planText(row) {
 
 function statusText(row) {
   if (!row || row.status === "ok") return ""
-  if (row.error && ERROR_TEXT[row.error]) return ERROR_TEXT[row.error]
-  var label = STATUS[row.status] || row.status
-  return row.error ? label + " (" + row.error + ")" : label
+  return ERROR_TEXT[row.error] || statusDetail(row)
 }
 
 function statusDetail(row) {
