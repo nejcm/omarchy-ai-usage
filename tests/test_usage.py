@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import usage  # noqa: E402
-from providers import claude, codex, common, cursor, grok, opencode  # noqa: E402
+from providers import antigravity, claude, codex, common, cursor, grok, opencode  # noqa: E402
 import providers as providers_pkg  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -544,6 +544,110 @@ class GrokTests(ProviderCase):
         self.assertEqual(grok.collect(FakeRequest(self.routes()), self.home, env)["status"], common.OK)
 
 
+class AntigravityTests(ProviderCase):
+    AUTH = ".gemini/antigravity-cli/antigravity-oauth-token"
+
+    def valid_auth(self):
+        return {"token": {"access_token": "SECRET-TOKEN", "token_type": "Bearer",
+                          "refresh_token": "r", "expiry": "2030-01-01T00:00:00Z"},
+                "auth_method": "consumer"}
+
+    def routes(self):
+        return {"retrieveUserQuotaSummary": common.Response(200, load("antigravity_usage.json"))}
+
+    def test_valid(self):
+        write(self.home, self.AUTH, self.valid_auth())
+        request = FakeRequest(self.routes())
+        row = antigravity.collect(request, self.home, {})
+        self.assertEqual(row["status"], common.OK)
+        self.assertEqual([m["label"] for m in row["metrics"]], ["Session", "Weekly", "Claude", "Claude Weekly"])
+        self.assertEqual([m["percent"] for m in row["metrics"]], [8.0, 14.0, 0.0, 0.0])
+        self.assertEqual(row["metrics"][0]["resetsAt"], "2026-08-23T04:25:14Z")
+        self.assertEqual(request.calls[0]["method"], "POST")
+        self.assertEqual(request.calls[0]["headers"]["Authorization"], "Bearer SECRET-TOKEN")
+        self.assertEqual(request.calls[0]["headers"].get("User-Agent"), "antigravity")
+
+    def test_unknown_bucket_ignored(self):
+        payload = load("antigravity_usage.json")
+        payload["groups"][0]["buckets"].append({"bucketId": "gemini-image-5h", "remainingFraction": 0.1})
+        self.assertEqual([m["label"] for m in antigravity.parse(payload)],
+                         ["Session", "Weekly", "Claude", "Claude Weekly"])
+
+    def test_missing_fraction_drops_line(self):
+        payload = load("antigravity_usage.json")
+        payload["groups"][0]["buckets"][0] = {"bucketId": "gemini-5h"}
+        self.assertEqual([m["label"] for m in antigravity.parse(payload)], ["Weekly", "Claude", "Claude Weekly"])
+
+    def test_duplicate_bucket_first_wins(self):
+        payload = load("antigravity_usage.json")
+        payload["groups"][1]["buckets"].append({"bucketId": "gemini-5h", "remainingFraction": 0.5})
+        self.assertEqual([m["percent"] for m in antigravity.parse(payload)][0], 8.0)
+
+    def test_fraction_clamped(self):
+        for value, expected in ((-1, 100.0), (2, 0.0)):
+            with self.subTest(value=value):
+                payload = {"groups": [{"buckets": [{"bucketId": "gemini-5h", "remainingFraction": value}]}]}
+                self.assertEqual([m["percent"] for m in antigravity.parse(payload)], [expected])
+
+    def test_malformed_usage_does_not_raise(self):
+        self.assertEqual(antigravity.parse({"groups": "bad"}), [])
+        self.assertEqual(antigravity.parse({"groups": [None, {"buckets": "x"}]}), [])
+        self.assertEqual(antigravity.parse({"groups": [{"buckets": [None, {"bucketId": "gemini-5h",
+                                                                           "remainingFraction": "bad"}]}]}), [])
+
+    def test_malformed_group_keeps_valid_buckets(self):
+        payload = load("antigravity_usage.json")
+        payload["groups"].append({"buckets": 42})
+        self.assertEqual([m["label"] for m in antigravity.parse(payload)],
+                         ["Session", "Weekly", "Claude", "Claude Weekly"])
+
+    def test_missing_auth(self):
+        self.assertEqual(antigravity.collect(FakeRequest({}), self.home, {})["status"], common.NOT_SIGNED_IN)
+
+    def test_malformed_auth(self):
+        write(self.home, self.AUTH, "{not json")
+        self.assertEqual(antigravity.collect(FakeRequest({}), self.home, {})["error"], "malformed-auth")
+
+    def test_token_without_access_token_is_not_signed_in(self):
+        write(self.home, self.AUTH, {"token": {"refresh_token": "r"}, "auth_method": "consumer"})
+        request = FakeRequest(self.routes())
+        self.assertEqual(antigravity.collect(request, self.home, {})["status"], common.NOT_SIGNED_IN)
+        self.assertEqual(request.calls, [])
+
+    def test_root_level_access_token_is_read(self):
+        write(self.home, self.AUTH, {"access_token": "SECRET-TOKEN"})
+        self.assertEqual(antigravity.collect(FakeRequest(self.routes()), self.home, {})["status"], common.OK)
+
+    def test_expired_expiry(self):
+        write(self.home, self.AUTH, {"token": {"access_token": "SECRET-TOKEN", "expiry": "2001-09-09T01:46:40Z"}})
+        request = FakeRequest(self.routes())
+        row = antigravity.collect(request, self.home, {})
+        self.assertEqual(row["status"], common.EXPIRED)
+        self.assertEqual(row["error"], "auth-expired")
+        self.assertEqual(request.calls, [])
+
+    def test_sign_in_expired_on_401(self):
+        write(self.home, self.AUTH, self.valid_auth())
+        row = antigravity.collect(FakeRequest({"retrieveUserQuotaSummary": common.Response(401, None)}), self.home, {})
+        self.assertEqual(row["status"], common.EXPIRED)
+
+    def test_rate_limited(self):
+        write(self.home, self.AUTH, self.valid_auth())
+        row = antigravity.collect(FakeRequest({"retrieveUserQuotaSummary": common.Response(429, None)}), self.home, {})
+        self.assertEqual(row["status"], common.RATE_LIMITED)
+
+    def test_no_buckets_is_unavailable(self):
+        write(self.home, self.AUTH, self.valid_auth())
+        row = antigravity.collect(FakeRequest({"retrieveUserQuotaSummary": common.Response(200, {"groups": []})}),
+                                  self.home, {})
+        self.assertEqual(row["status"], common.UNAVAILABLE)
+
+    def test_token_not_in_row(self):
+        write(self.home, self.AUTH, self.valid_auth())
+        row = antigravity.collect(FakeRequest(self.routes()), self.home, {})
+        self.assertNotIn("SECRET-TOKEN", json.dumps(row))
+
+
 class RefreshLockTests(ProviderCase):
     def lock_path(self):
         return os.path.join(self.home, "_lock")
@@ -1008,9 +1112,9 @@ assert.equal(root.rows[0].status, "stale");
         source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
         script = source + """
 const assert = require("node:assert/strict");
-assert.deepEqual(providerOrder(["cursor", "bad", "cursor"]), ["cursor", "claude", "codex", "opencode", "grok"]);
+assert.deepEqual(providerOrder(["cursor", "bad", "cursor"]), ["cursor", "claude", "codex", "opencode", "grok", "antigravity"]);
 assert.deepEqual(providerOrder(null), PROVIDERS);
-assert.deepEqual(selectedProviders(PROVIDERS, ["claude"], ["cursor"]), ["codex", "opencode", "grok"]);
+assert.deepEqual(selectedProviders(PROVIDERS, ["claude"], ["cursor"]), ["codex", "opencode", "grok", "antigravity"]);
 assert.deepEqual(selectedProviders(PROVIDERS, PROVIDERS), []);
 assert.deepEqual(selectedProviders(PROVIDERS, {}, {}), PROVIDERS);
 const rows = PROVIDERS.map(provider => ({provider, status:"ok", metrics:[{percent:70.4}]}));
@@ -1154,6 +1258,8 @@ console.log(JSON.stringify({rows:rows, marked:markStale(rows)}));
             write(home, ".local/share/opencode/auth.json", {"opencode-go": {"key": "k"}})
             write(home, ".config/cursor/auth.json", {"accessToken": make_jwt(FUTURE_EXP)})
             write(home, ".grok/auth.json", {"https://auth.x.ai::client": {"key": make_jwt(FUTURE_EXP)}})
+            write(home, ".gemini/antigravity-cli/antigravity-oauth-token",
+                  {"token": {"access_token": "t", "expiry": "2030-01-01T00:00:00Z"}, "auth_method": "consumer"})
             routes = {
                 "api.anthropic.com": common.Response(200, load("claude_usage.json")),
                 "chatgpt.com": common.Response(200, load("codex_usage.json")),
@@ -1162,6 +1268,7 @@ console.log(JSON.stringify({rows:rows, marked:markStale(rows)}));
                 "GetPlanInfo": common.Response(200, load("cursor_plan.json")),
                 "billing?format=credits": common.Response(200, load("grok_usage.json")),
                 "settings": common.Response(200, {"subscription_tier_display": "SuperGrok Heavy"}),
+                "cloudcode-pa.googleapis.com": common.Response(200, load("antigravity_usage.json")),
             }
 
             def router(method, url, hosts, headers, body=None, error_body=False):
@@ -1169,7 +1276,7 @@ console.log(JSON.stringify({rows:rows, marked:markStale(rows)}));
                 return routes.get(host) or routes.get(url.rsplit("/", 1)[-1]) or common.Response(0, None, "network")
 
             rows = usage.collect_all(home, {}, router)
-            self.assertEqual([r["provider"] for r in rows], ["claude", "codex", "opencode", "cursor", "grok"])
+            self.assertEqual([r["provider"] for r in rows], ["claude", "codex", "opencode", "cursor", "grok", "antigravity"])
             self.assertTrue(all(r["status"] == common.OK for r in rows))
             json.dumps({"providers": rows})
 

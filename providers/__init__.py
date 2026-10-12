@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from . import claude, codex, cursor, grok, opencode
+from . import antigravity, claude, codex, cursor, grok, opencode
 
-REGISTRY = [claude, codex, opencode, cursor, grok]
+REGISTRY = [claude, codex, opencode, cursor, grok, antigravity]
 
 BY_ID = {module.ID: module for module in REGISTRY}

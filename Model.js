@@ -2,9 +2,9 @@
 
 // Pure formatting and merge helpers shared by the bar widget and the panel.
 
-var LOGOS = { claude: "claude", codex: "chatgpt", opencode: "opencode", cursor: "cursor", grok: "grok" }
-var PROVIDERS = ["claude", "codex", "opencode", "cursor", "grok"]
-var NAMES = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode", cursor: "Cursor", grok: "Grok" }
+var LOGOS = { claude: "claude", codex: "chatgpt", opencode: "opencode", cursor: "cursor", grok: "grok", antigravity: "antigravity" }
+var PROVIDERS = ["claude", "codex", "opencode", "cursor", "grok", "antigravity"]
+var NAMES = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode", cursor: "Cursor", grok: "Grok", antigravity: "Antigravity" }
 var REFRESH_MINUTES = [1, 2, 3, 5, 10, 15, 30, 60]
 
 function providerOrder(saved) {
