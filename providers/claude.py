@@ -461,8 +461,7 @@ def collect(request, home: str, env: dict) -> dict:
             return row
         if refreshed:
             token = str(refreshed.get("accessToken") or token).strip()
-            response = _usage(request, token)
-        elif expired:
+        if refreshed or expired:
             response = _usage(request, token)
 
     if response.status != 200:
