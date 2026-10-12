@@ -3,17 +3,18 @@
 // Pure formatting, provider-selection, and merge helpers for the widget and panel.
 
 var PROVIDER_INFO = {
-  claude: { name: "Claude Code", logo: "claude", mono: false },
-  codex: { name: "Codex", logo: "chatgpt", mono: true },
-  opencode: { name: "OpenCode", logo: "opencode", mono: false },
-  cursor: { name: "Cursor", logo: "cursor", mono: true },
-  grok: { name: "Grok", logo: "grok", mono: true },
-  antigravity: { name: "Antigravity", logo: "antigravity", mono: false },
-  zai: { name: "Z.ai", logo: "z.ai", mono: true }
+  claude: { name: "Claude Code", logo: "claude", mono: false, cli: "claude" },
+  codex: { name: "Codex", logo: "chatgpt", mono: true, cli: "codex" },
+  opencode: { name: "OpenCode", logo: "opencode", mono: false, cli: "opencode" },
+  cursor: { name: "Cursor", logo: "cursor", mono: true, cli: "cursor-agent" },
+  grok: { name: "Grok", logo: "grok", mono: true, cli: "grok" },
+  antigravity: { name: "Antigravity", logo: "antigravity", mono: false, cli: "agy" },
+  zai: { name: "Z.ai", logo: "z.ai", mono: true, cli: "chelper" }
 }
 var PROVIDERS = Object.keys(PROVIDER_INFO)
 var REFRESH_MINUTES = [1, 2, 3, 5, 10, 15, 30, 60]
 var DEFAULT_ENABLED = ["claude", "codex"]
+var TROUBLESHOOTING_URL = "https://github.com/nejcm/omarchy-ai-usage#troubleshooting"
 
 function enabledInOrder(order, enabled) {
   var list = Array.isArray(enabled) ? enabled : []
@@ -65,6 +66,46 @@ var STATUS = {
   "error": "error"
 }
 
+// Plain-language text for the bounded collector error codes; unknown codes keep the raw form.
+var ERROR_TEXT = {
+  "auth-expired": "Sign-in expired",
+  "invalid-grant": "Sign-in rejected",
+  "http-401": "Sign-in expired",
+  "http-403": "Sign-in expired",
+  "http-429": "Rate limited",
+  "network": "Network error",
+  "timeout": "Request timed out",
+  "host-not-allowed": "Blocked provider host",
+  "invalid-auth": "Invalid credentials",
+  "invalid-request": "Invalid request",
+  "unreadable": "Credentials unreadable",
+  "malformed-auth": "Credentials unreadable",
+  "malformed-response": "Malformed provider response",
+  "no-data": "No subscription data",
+  "api-key-auth": "API key sign-in unsupported",
+  "no-subscription": "No subscription found",
+  "no-coding-plan": "No coding plan found",
+  "refresh-locked": "Refreshing elsewhere",
+  "refresh-failed": "Refresh failed",
+  "refresh-rejected": "Sign-in refresh rejected",
+  "refresh-timeout": "Sign-in refresh timed out",
+  "reread-failed": "Credentials could not be re-read",
+  "persist-changed": "Credentials changed during refresh",
+  "persist-write-failed": "Could not save refreshed sign-in",
+  "persist-lock-lost": "Credential lock lost during refresh",
+  "write-failed": "Could not save credentials",
+  "lock-lost": "Credential lock lost",
+  "exchange-failed": "Sign-in refresh interrupted",
+  "internal-error": "Collector error",
+  "not-signed-in": "Not signed in",
+  "unavailable": "Unavailable",
+  "rate-limited": "Rate limited",
+  "expired": "Sign-in expired",
+  "stale": "Stale"
+}
+
+var SIGN_IN_ERRORS = ["auth-expired", "invalid-grant", "http-401", "http-403"]
+
 function logo(provider, white) {
   var info = PROVIDER_INFO[provider]
   return info ? info.logo + (white ? ".white" : "") + ".svg" : ""
@@ -98,6 +139,13 @@ function barValue(row, mode) {
   if (mode === "remaining") return percentText(remaining)
   if (mode === "both") return percentText(used) + " / " + percentText(remaining)
   return percentText(used)
+}
+
+function barTooltip(mode) {
+  var basis = mode === "remaining" ? "percent remaining of each provider's most-restricted limit"
+    : mode === "both" ? "percent used and remaining of each provider's most-restricted limit"
+    : "percent used of each provider's most-restricted limit"
+  return "AI usage \u2014 " + basis
 }
 
 function isWarning(row, threshold) {
@@ -138,8 +186,45 @@ function planText(row) {
 
 function statusText(row) {
   if (!row || row.status === "ok") return ""
+  if (row.error && ERROR_TEXT[row.error]) return ERROR_TEXT[row.error]
   var label = STATUS[row.status] || row.status
   return row.error ? label + " (" + row.error + ")" : label
+}
+
+function statusDetail(row) {
+  if (!row || row.status === "ok") return ""
+  var label = STATUS[row.status] || row.status
+  return row.error ? label + " (" + row.error + ")" : label
+}
+
+function statusHint(row) {
+  if (!row) return ""
+  var cli = providerCli(row.provider)
+  if (cli && row.status === "not-signed-in") return "Sign in with " + cli + " to connect"
+  if (cli && (row.status === "expired" || SIGN_IN_ERRORS.indexOf(row.error) >= 0)) return "Open " + cli + " to renew sign-in"
+  if (row.status === "rate-limited" || row.error === "http-429") return "Raise the refresh interval"
+  if (row.error === "refresh-locked") return "Retrying on the next update"
+  if (cli && row.error === "refresh-timeout") return "Open " + cli + " to recover the sign-in"
+  return ""
+}
+
+function providerCli(provider) {
+  var info = PROVIDER_INFO[provider]
+  return info && info.cli ? info.cli : ""
+}
+
+function needsSignIn(row) {
+  return !!row && (row.status === "not-signed-in" || row.status === "expired")
+}
+
+function connectHint(row) {
+  return needsSignIn(row) ? statusHint(row) : ""
+}
+
+function anyNeedsSignIn(rows) {
+  var list = rows || []
+  for (var i = 0; i < list.length; i++) if (needsSignIn(list[i])) return true
+  return false
 }
 
 // Keep the last good metrics and timestamp when a provider now fails.
@@ -214,6 +299,19 @@ function resetText(iso, nowMs) {
   var hours = Math.floor(minutes / 60)
   if (hours < 24) return hours + "h " + (minutes % 60) + "m"
   return Math.floor(hours / 24) + "d " + (hours % 24) + "h"
+}
+
+function updatedText(iso, nowMs) {
+  if (!iso) return ""
+  var target = Date.parse(iso)
+  if (isNaN(target)) return ""
+  var now = (nowMs === undefined || nowMs === null) ? Date.now() : nowMs
+  var minutes = Math.floor((now - target) / 60000)
+  if (minutes < 1) return "just now"
+  if (minutes < 60) return minutes + "m ago"
+  var hours = Math.floor(minutes / 60)
+  if (hours < 24) return hours + "h ago"
+  return Math.floor(hours / 24) + "d ago"
 }
 
 function clockText(iso) {

@@ -51,6 +51,13 @@ Column {
       id: provider
       required property string modelData
       required property int index
+      readonly property var usageRow: {
+        var rows = root.hostWidget.rows || []
+        for (var i = 0; i < rows.length; i++) {
+          if (rows[i].provider === provider.modelData) return rows[i]
+        }
+        return null
+      }
       width: root.width
       spacing: Style.space(4)
 
@@ -81,6 +88,15 @@ Column {
           enabled: provider.index < root.hostWidget.providerOrder.length - 1
           onClicked: root.hostWidget.moveProvider(provider.modelData, 1)
         }
+      }
+      Text {
+        visible: Model.connectHint(provider.usageRow) !== ""
+        width: parent.width
+        text: Model.connectHint(provider.usageRow)
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        wrapMode: Text.WordWrap
       }
       ProviderToggle {
         text: "Enabled"

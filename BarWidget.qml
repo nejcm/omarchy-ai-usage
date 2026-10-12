@@ -193,7 +193,7 @@ BarWidget {
     hasVisualContent: true
     fixedWidth: root.navbarRows.length === 0 ? -1 : barRow.implicitWidth + scaledHorizontalMargin * 2
     dimmed: !root.loadedOnce
-    tooltipText: "AI subscription usage"
+    tooltipText: Model.barTooltip(root.displayMode)
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.LeftButton) root.togglePanel()
     }

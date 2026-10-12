@@ -1004,6 +1004,52 @@ for (const [value, color] of [[0,"#4ade80"], [75,"#4ade80"],
 """
         subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
 
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_model_status_hints_and_relative_time(self):
+        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        script = source + """
+const assert = require("node:assert/strict");
+const now = Date.parse("2026-10-12T14:32:00Z");
+assert.equal(updatedText("", now), "");
+assert.equal(updatedText("bad", now), "");
+assert.equal(updatedText("2026-10-12T14:31:45Z", now), "just now");
+assert.equal(updatedText("2026-10-12T14:27:00Z", now), "5m ago");
+assert.equal(updatedText("2026-10-12T12:32:00Z", now), "2h ago");
+assert.equal(updatedText("2026-10-10T14:32:00Z", now), "2d ago");
+assert.equal(statusText({status:"ok"}), "");
+assert.equal(statusText({status:"not-signed-in"}), "not signed in");
+const locked = {provider:"claude", status:"stale", error:"refresh-locked"};
+assert.equal(statusText(locked), "Refreshing elsewhere");
+assert.equal(statusDetail(locked), "stale (refresh-locked)");
+assert.equal(statusHint(locked), "Retrying on the next update");
+const expired = {provider:"claude", status:"expired", error:"http-401"};
+assert.equal(statusText(expired), "Sign-in expired");
+assert.equal(statusHint(expired), "Open claude to renew sign-in");
+const limited = {provider:"codex", status:"rate-limited", error:"http-429"};
+assert.equal(statusText(limited), "Rate limited");
+assert.equal(statusHint(limited), "Raise the refresh interval");
+const missing = {provider:"cursor", status:"not-signed-in"};
+assert.equal(statusText(missing), "not signed in");
+assert.equal(connectHint(missing), "Sign in with cursor-agent to connect");
+assert.equal(connectHint({provider:"cursor", status:"ok"}), "");
+assert.equal(anyNeedsSignIn([{status:"ok"}, missing]), true);
+assert.equal(anyNeedsSignIn([{status:"ok"}]), false);
+const persist = {provider:"claude", status:"error", error:"persist-write-failed"};
+assert.equal(statusText(persist), "Could not save refreshed sign-in");
+assert.equal(statusDetail(persist), "error (persist-write-failed)");
+assert.equal(statusHint(persist), "");
+assert.equal(statusHint({provider:"claude", status:"stale", error:"refresh-timeout"}),
+  "Open claude to recover the sign-in");
+assert.equal(statusText({status:"error", error:"some-new-code"}), "error (some-new-code)");
+assert.equal(statusText({provider:"codex", status:"unavailable", error:"api-key-auth"}),
+  "API key sign-in unsupported");
+assert.equal(barTooltip("used"), "AI usage \\u2014 percent used of each provider's most-restricted limit");
+assert.equal(barTooltip("remaining"), "AI usage \\u2014 percent remaining of each provider's most-restricted limit");
+assert.equal(barTooltip("both"), "AI usage \\u2014 percent used and remaining of each provider's most-restricted limit");
+assert.equal(TROUBLESHOOTING_URL, "https://github.com/nejcm/omarchy-ai-usage#troubleshooting");
+"""
+        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+
     def test_percent_clamps_and_parses(self):
         self.assertEqual(common.percent("42%"), 42.0)
         self.assertEqual(common.percent(150), 100.0)

@@ -9,9 +9,11 @@ reset countdowns.
 [claude] 42%  [chatgpt] 18%  [opencode] 7%  [cursor] 2%  [grok] 5%  [antigravity] 12%  [z.ai] 25%
 ```
 
-The bar shows each provider's most-used limit. Click it to see every available
-limit, your plan, and when your allowance resets. The panel stays within 60%
-of the screen height and scrolls when needed.
+The bar shows each provider's most-used limit. Hover the widget to see what
+the percentages mean. Click it to see every available limit, your plan, and
+when your allowance resets; the header shows how long ago the reading was
+refreshed. The panel stays within 60% of the screen height and scrolls when
+needed.
 
 ![AI usage in the Omarchy bar](assets/screen-1.png)
 
@@ -25,7 +27,8 @@ of the screen height and scrolls when needed.
 - Choose which providers to collect and which to show in the bar.
 - Reorder providers and show used percentage, remaining percentage, or both.
 - Adjust refresh frequency and get optional notifications near your limits.
-- Keep the last good reading visible when a provider cannot refresh.
+- Keep the last good reading visible when a provider cannot refresh, with a
+  plain-language status and next step when one is known.
 
 | Provider | Usage shown |
 | --- | --- |
@@ -58,7 +61,7 @@ omarchy plugin enable io.github.nejcm.ai-usage --section right
 
 Sign in through the coding tools you use, then click the usage widget. Claude
 Code and Codex are enabled initially; turn on the others in settings. A
-provider without a usable sign-in shows `–` and an explanation in the panel.
+provider without a usable sign-in shows `–` and a hint on how to connect.
 
 If you already have a checkout, you can symlink its absolute path into the
 same plugin directory instead of cloning it. Keep that checkout in place;
@@ -122,10 +125,16 @@ renewal stays with their own tools. See [Claude OAuth refresh](#claude-oauth-ref
 | --- | --- |
 | Not signed in | No usable local credentials. Sign in through that provider's coding tool. |
 | Sign-in expired | Credentials need renewal. Run the provider's tool to refresh its login. |
-| Stale | The latest refresh failed. The panel keeps the last good reading and shows the error. |
+| Stale | The latest refresh failed or is refreshing elsewhere. The panel keeps the last good reading and shows the error. |
 | Unavailable | The account has no supported subscription data, such as a Codex API key or an OpenCode account without Go. |
 | Rate limited | The provider returned HTTP 429. Increase the refresh interval. |
 | Error | A credential file, provider response, or network request failed. Check the error shown in the panel. |
+
+The panel shows known errors in plain language and, for the common ones, a
+short next step such as which CLI opens to renew a sign-in or the settings
+change for rate limiting. Hover a status line for the raw collector code;
+providers that need sign-in add a link to this section, and settings shows the
+same connect hint next to each provider.
 
 If the widget does not appear, run `omarchy-shell shell rescanPlugins` and
 retry the enable command. The plugin runs inside the existing Omarchy shell;
