@@ -38,7 +38,7 @@ BarWidget {
   }
 
   function toggleProviderList(name, id, list) {
-    list = Array.isArray(list) ? list.slice() : []
+    list = Model.providerList(list)
     var index = list.indexOf(id)
     if (index < 0) list.push(id)
     else list.splice(index, 1)
@@ -193,7 +193,7 @@ BarWidget {
     hasVisualContent: true
     fixedWidth: root.navbarRows.length === 0 ? -1 : barRow.implicitWidth + scaledHorizontalMargin * 2
     dimmed: !root.loadedOnce
-    tooltipText: "AI subscription usage"
+    tooltipText: Model.barTooltip(root.displayMode)
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.LeftButton) root.togglePanel()
     }

@@ -776,6 +776,16 @@ class TransportTests(unittest.TestCase):
 
 
 class SharedTests(unittest.TestCase):
+    @unittest.skipUnless(Path("/usr/lib/qt6/bin/qmltestrunner").exists(), "Qt 6 QML test runner not installed")
+    def test_qml_provider_settings_after_restart(self):
+        result = subprocess.run(
+            ["/usr/lib/qt6/bin/qmltestrunner", "-input", str(ROOT / "tests/tst_provider_settings.qml"), "-o", "-,txt"],
+            env={**os.environ, "QT_QPA_PLATFORM": "offscreen", "QT_QPA_PLATFORMTHEME": "",
+                 "QT_QUICK_BACKEND": "software", "QT_LOGGING_TO_CONSOLE": "1"},
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_widget_collection_selection_and_late_output(self):
         source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
@@ -834,7 +844,7 @@ assert.equal(root.rows[0].status, "stale");
 const assert = require("node:assert/strict");
 const MODEL = "io.github.nejcm.ai-usage";
 const Model = { DEFAULT_ENABLED: DEFAULT_ENABLED, enabledInOrder: enabledInOrder,
-  selectedProviders: selectedProviders, providerOrder: providerOrder };
+  selectedProviders: selectedProviders, providerOrder: providerOrder, providerList: providerList };
 function makeHost() {
   let disk = { id: MODEL };
   const layout = { left: [], center: [], right: [{ id: MODEL }] };
@@ -911,6 +921,9 @@ assert.deepEqual(restarted.setting("enabledProviders", DEFAULT_ENABLED), ["claud
 assert.deepEqual(Model.enabledInOrder(restarted.setting("providerOrder", []), restarted.setting("enabledProviders", [])), ["cursor", "codex", "claude"]);
 assert.equal(restarted.setting("refreshIntervalSec", 300), 180);
 assert.equal(restarted.setting("warningState", {})["cursor:Cursor models"].fired, true);
+restarted.root.settings.enabledProviders = {0: "claude", 1: "codex", length: 2};
+clickToggle(restarted, "enabledProviders", "cursor");
+assert.deepEqual(host.disk().enabledProviders, ["claude", "codex", "cursor"]);
 console.log("OK");
 """
         subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
@@ -1001,6 +1014,70 @@ for (const [value, color] of [[0,"#4ade80"], [75,"#4ade80"],
   [75.1,"#fb923c"], [90,"#fb923c"], [90.1,"#f87171"], [100,"#f87171"]]) {
   assert.equal(usageColor(value), color);
 }
+"""
+        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_model_status_hints_and_relative_time(self):
+        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        script = source + """
+const assert = require("node:assert/strict");
+const now = Date.parse("2026-10-12T14:32:00Z");
+assert.equal(updatedText("", now), "");
+assert.equal(updatedText("bad", now), "");
+assert.equal(updatedText("2026-10-12T14:31:45Z", now), "just now");
+assert.equal(updatedText("2026-10-12T14:27:00Z", now), "5m ago");
+assert.equal(updatedText("2026-10-12T12:32:00Z", now), "2h ago");
+assert.equal(updatedText("2026-10-10T14:32:00Z", now), "2d ago");
+assert.equal(statusText({status:"ok"}), "");
+assert.equal(statusText({status:"not-signed-in"}), "not signed in");
+const locked = {provider:"claude", status:"stale", error:"refresh-locked"};
+assert.equal(statusText(locked), "Refreshing elsewhere");
+assert.equal(statusDetail(locked), "stale (refresh-locked)");
+assert.equal(statusHint(locked), "Retrying on the next update");
+const expired = {provider:"claude", status:"expired", error:"http-401"};
+assert.equal(statusText(expired), "Sign-in expired");
+assert.equal(statusHint(expired), "Open claude to renew sign-in");
+const limited = {provider:"codex", status:"rate-limited", error:"http-429"};
+assert.equal(statusText(limited), "Rate limited");
+assert.equal(statusHint(limited), "Raise the refresh interval");
+const missing = {provider:"cursor", status:"not-signed-in"};
+assert.equal(statusText(missing), "not signed in");
+assert.equal(connectHint(missing), "Sign in with cursor-agent to connect");
+assert.equal(connectHint({provider:"cursor", status:"ok"}), "");
+assert.equal(anyNeedsSignIn([{status:"ok"}, missing]), true);
+assert.equal(anyNeedsSignIn([{status:"ok"}]), false);
+const persist = {provider:"claude", status:"error", error:"persist-write-failed"};
+assert.equal(statusText(persist), "Could not save refreshed sign-in");
+assert.equal(statusDetail(persist), "error (persist-write-failed)");
+assert.equal(statusHint(persist), "");
+assert.equal(statusHint({provider:"claude", status:"stale", error:"refresh-timeout"}),
+  "Open claude to recover the sign-in");
+assert.equal(statusText({status:"error", error:"some-new-code"}), "error (some-new-code)");
+assert.equal(statusText({provider:"codex", status:"unavailable", error:"api-key-auth"}),
+  "API key sign-in unsupported");
+assert.equal(statusText({provider:"claude", status:"error", error:"persist-unreadable"}),
+  "Credentials unreadable");
+const good = {provider:"claude", name:"Claude Code", status:"ok",
+  metrics:[{label:"Session", percent:42, resetsAt:""}], plan:"Pro", refreshedAt:"t1"};
+const signedOut = mergeRows([good], [{provider:"claude", name:"Claude Code",
+  status:"not-signed-in", error:"", metrics:[]}])[0];
+assert.equal(signedOut.status, "stale");
+assert.equal(signedOut.error, "not-signed-in");
+assert.equal(statusText(signedOut), "Not signed in");
+assert.equal(statusHint(signedOut), "Sign in with claude to connect");
+assert.equal(connectHint(signedOut), "Sign in with claude to connect");
+assert.equal(anyNeedsSignIn([signedOut]), true);
+const expiredStale = mergeRows([good], [{provider:"claude", name:"Claude Code",
+  status:"expired", error:"http-401", metrics:[]}])[0];
+assert.equal(expiredStale.status, "stale");
+assert.equal(statusHint(expiredStale), "Open claude to renew sign-in");
+assert.equal(connectHint(expiredStale), "Open claude to renew sign-in");
+assert.equal(anyNeedsSignIn([expiredStale]), true);
+assert.equal(barTooltip("used"), "AI usage \\u2014 percent used of each provider's most-restricted limit");
+assert.equal(barTooltip("remaining"), "AI usage \\u2014 percent remaining of each provider's most-restricted limit");
+assert.equal(barTooltip("both"), "AI usage \\u2014 percent used and remaining of each provider's most-restricted limit");
+assert.equal(TROUBLESHOOTING_URL, "https://github.com/nejcm/omarchy-ai-usage#troubleshooting");
 """
         subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
 

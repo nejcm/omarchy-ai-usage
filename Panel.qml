@@ -103,11 +103,22 @@ Panel {
             }
 
             Text {
+              id: updatedText
               visible: !root.settingsOpen && (root.refreshedAt !== "" || root.refreshing)
-              text: root.refreshing ? "refreshing…" : "Updated " + Model.clockText(root.refreshedAt)
+              text: root.refreshing ? "refreshing…" : "Updated " + Model.updatedText(root.refreshedAt, root.nowMs)
               color: root.dimForeground
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
+
+              HoverHandler {
+                id: updatedHover
+              }
+
+              PanelToolTip {
+                visible: updatedHover.hovered && !root.refreshing && Model.clockText(root.refreshedAt) !== ""
+                text: "Updated at " + Model.clockText(root.refreshedAt)
+                fontFamily: root.contentFontFamily
+              }
             }
           }
 
@@ -242,9 +253,30 @@ Panel {
                 }
 
                 Text {
+                  id: statusLine
                   visible: Model.statusText(card.modelData) !== ""
                   width: parent.width
                   text: Model.statusText(card.modelData)
+                  color: root.dimForeground
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
+
+                  HoverHandler {
+                    id: statusHover
+                  }
+
+                  PanelToolTip {
+                    visible: statusHover.hovered && Model.statusDetail(card.modelData) !== statusLine.text
+                    text: Model.statusDetail(card.modelData)
+                    fontFamily: root.contentFontFamily
+                  }
+                }
+
+                Text {
+                  visible: Model.statusHint(card.modelData) !== ""
+                  width: parent.width
+                  text: Model.statusHint(card.modelData)
                   color: root.dimForeground
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.caption
@@ -328,6 +360,17 @@ Panel {
                   }
                 }
               }
+            }
+
+            Button {
+              visible: Model.anyNeedsSignIn(root.rows)
+              text: "Troubleshooting"
+              iconText: "↗"
+              tooltipText: Model.TROUBLESHOOTING_URL
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              focusable: true
+              onClicked: Qt.openUrlExternally(Model.TROUBLESHOOTING_URL)
             }
           }
         }
