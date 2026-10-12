@@ -2,17 +2,22 @@
 
 // Pure formatting, provider-selection, and merge helpers for the widget and panel.
 
-var LOGOS = { claude: "claude", codex: "chatgpt", opencode: "opencode", cursor: "cursor", grok: "grok", antigravity: "antigravity", zai: "z.ai" }
-var PROVIDERS = ["claude", "codex", "opencode", "cursor", "grok", "antigravity", "zai"]
-var NAMES = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode", cursor: "Cursor", grok: "Grok", antigravity: "Antigravity", zai: "Z.ai" }
+var PROVIDER_INFO = {
+  claude: { name: "Claude Code", logo: "claude", mono: false },
+  codex: { name: "Codex", logo: "chatgpt", mono: true },
+  opencode: { name: "OpenCode", logo: "opencode", mono: false },
+  cursor: { name: "Cursor", logo: "cursor", mono: true },
+  grok: { name: "Grok", logo: "grok", mono: true },
+  antigravity: { name: "Antigravity", logo: "antigravity", mono: false },
+  zai: { name: "Z.ai", logo: "z.ai", mono: true }
+}
+var PROVIDERS = Object.keys(PROVIDER_INFO)
 var REFRESH_MINUTES = [1, 2, 3, 5, 10, 15, 30, 60]
 var DEFAULT_ENABLED = ["claude", "codex"]
 
 function enabledInOrder(order, enabled) {
   var list = Array.isArray(enabled) ? enabled : []
-  var out = []
-  for (var i = 0; i < order.length; i++) if (list.indexOf(order[i]) >= 0) out.push(order[i])
-  return out
+  return order.filter(function(id) { return list.indexOf(id) >= 0 })
 }
 
 function providerOrder(saved) {
@@ -27,10 +32,9 @@ function providerOrder(saved) {
   return order
 }
 
-function selectedProviders(order, disabled, hidden) {
+function selectedProviders(order, hidden) {
   return order.filter(function(id) {
-    return (!Array.isArray(disabled) || disabled.indexOf(id) < 0)
-      && (!Array.isArray(hidden) || hidden.indexOf(id) < 0)
+    return !Array.isArray(hidden) || hidden.indexOf(id) < 0
   })
 }
 
@@ -62,8 +66,13 @@ var STATUS = {
 }
 
 function logo(provider, white) {
-  var name = LOGOS[provider]
-  return name ? name + (white ? ".white" : "") + ".svg" : ""
+  var info = PROVIDER_INFO[provider]
+  return info ? info.logo + (white ? ".white" : "") + ".svg" : ""
+}
+
+function panelLogo(provider) {
+  var info = PROVIDER_INFO[provider]
+  return logo(provider, info && info.mono)
 }
 
 function hasData(row) {

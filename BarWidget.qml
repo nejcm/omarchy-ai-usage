@@ -21,7 +21,7 @@ BarWidget {
   readonly property var enabledProviders: Model.enabledInOrder(providerOrder, setting("enabledProviders", Model.DEFAULT_ENABLED))
   readonly property string selectionKey: enabledProviders.join(",")
   readonly property var displayRows: Model.orderedRows(rows, enabledProviders)
-  readonly property var navbarRows: Model.orderedRows(rows, Model.selectedProviders(enabledProviders, [], setting("hiddenProviders", [])))
+  readonly property var navbarRows: Model.orderedRows(rows, Model.selectedProviders(enabledProviders, setting("hiddenProviders", [])))
   readonly property string displayMode: setting("displayMode", "used")
   readonly property bool colorWarnings: setting("colorWarnings", true) === true
   readonly property bool desktopNotifications: setting("desktopNotifications", false) === true
@@ -37,9 +37,8 @@ BarWidget {
     if (root.bar && root.bar.shell) root.bar.shell.updateEntryInline(root.moduleName, next)
   }
 
-  function toggleProviderList(name, id) {
-    var stored = name === "enabledProviders" ? setting(name, Model.DEFAULT_ENABLED) : setting(name, [])
-    var list = Array.isArray(stored) ? stored.slice() : []
+  function toggleProviderList(name, id, list) {
+    list = Array.isArray(list) ? list.slice() : []
     var index = list.indexOf(id)
     if (index < 0) list.push(id)
     else list.splice(index, 1)

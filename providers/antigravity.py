@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 from datetime import datetime, timezone
 
@@ -12,6 +11,7 @@ from . import common
 ID = "antigravity"
 NAME = "Antigravity"
 ABBREV = "A"
+PROVIDER = (ID, NAME, ABBREV)
 HOSTS = ("cloudcode-pa.googleapis.com",)
 USAGE_URL = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
 
@@ -46,24 +46,9 @@ def read_credentials(home: str, env: dict):
 
 
 def _is_expired(value) -> bool:
-    iso = common.reset_iso(value)
-    if not iso:
-        return False
-    # Refresh needs a Google OAuth client secret the token file does not carry, so an
-    # expired access token is sign-in expired rather than refreshable.
-    return datetime.fromisoformat(iso.replace("Z", "+00:00")) <= datetime.now(timezone.utc)
-
-
-def _fraction(value):
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(number):
-        return None
-    return max(0.0, min(1.0, number))
+    # No client secret to refresh with, so an expired token means sign-in expired.
+    expiry = common.parse_time(value)
+    return expiry is not None and expiry <= datetime.now(timezone.utc)
 
 
 def parse(payload: dict) -> list:
@@ -81,10 +66,10 @@ def parse(payload: dict) -> list:
             if not isinstance(bucket, dict):
                 continue
             bucket_id = str(bucket.get("bucketId") or "").strip()
-            fraction = _fraction(bucket.get("remainingFraction"))
+            fraction = common.number(bucket.get("remainingFraction"))
             if bucket_id in buckets or fraction is None:
                 continue
-            buckets[bucket_id] = (fraction, common.reset_iso(bucket.get("resetTime")))
+            buckets[bucket_id] = (max(0.0, min(1.0, fraction)), common.reset_iso(bucket.get("resetTime")))
 
     metrics = []
     for bucket_id, label in BUCKETS:
@@ -109,21 +94,18 @@ def _headers(token: str) -> dict:
 def collect(request, home: str, env: dict) -> dict:
     credentials, code = read_credentials(home, env)
     if code == common.NOT_SIGNED_IN:
-        return common.row(ID, NAME, ABBREV, common.NOT_SIGNED_IN)
+        return common.row(PROVIDER, common.NOT_SIGNED_IN)
     if code:
-        return common.error_row(ID, NAME, ABBREV, code)
+        return common.error_row(PROVIDER, code)
 
     if _is_expired(credentials["expiry"]):
-        return common.row(ID, NAME, ABBREV, common.EXPIRED, error="auth-expired")
+        return common.row(PROVIDER, common.EXPIRED, error="auth-expired")
 
     headers = _headers(credentials["access_token"])
     response = request("POST", USAGE_URL, HOSTS, headers, body=b"{}")
     if response.status != 200:
-        return common.status_row(ID, NAME, ABBREV, response)
+        return common.status_row(PROVIDER, response)
     if not isinstance(response.data, dict):
-        return common.error_row(ID, NAME, ABBREV, "malformed-response")
+        return common.error_row(PROVIDER, "malformed-response")
 
-    metrics = parse(response.data)
-    if not metrics:
-        return common.row(ID, NAME, ABBREV, common.UNAVAILABLE, error="no-data")
-    return common.row(ID, NAME, ABBREV, common.OK, metrics=metrics)
+    return common.finish(PROVIDER, parse(response.data))

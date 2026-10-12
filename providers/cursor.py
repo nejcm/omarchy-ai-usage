@@ -11,6 +11,7 @@ from . import common
 ID = "cursor"
 NAME = "Cursor"
 ABBREV = "U"
+PROVIDER = (ID, NAME, ABBREV)
 HOSTS = ("api2.cursor.sh",)
 USAGE_URL = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage"
 PLAN_URL = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetPlanInfo"
@@ -89,19 +90,19 @@ def connect_headers(token: str) -> dict:
 def collect(request, home: str, env: dict) -> dict:
     credentials, code = read_credentials(home, env)
     if code == common.NOT_SIGNED_IN:
-        return common.row(ID, NAME, ABBREV, common.NOT_SIGNED_IN)
+        return common.row(PROVIDER, common.NOT_SIGNED_IN)
     if code:
-        return common.error_row(ID, NAME, ABBREV, code)
+        return common.error_row(PROVIDER, code)
 
     if common.is_expired_jwt(credentials["access_token"]):
-        return common.row(ID, NAME, ABBREV, common.EXPIRED, error="auth-expired")
+        return common.row(PROVIDER, common.EXPIRED, error="auth-expired")
 
     headers = connect_headers(credentials["access_token"])
     response = request("POST", USAGE_URL, HOSTS, headers, body=b"{}")
     if response.status != 200:
-        return common.status_row(ID, NAME, ABBREV, response)
+        return common.status_row(PROVIDER, response)
     if not isinstance(response.data, dict):
-        return common.error_row(ID, NAME, ABBREV, "malformed-response")
+        return common.error_row(PROVIDER, "malformed-response")
 
     plan = ""
     plan_response = request("POST", PLAN_URL, HOSTS, headers, body=b"{}")
@@ -110,7 +111,4 @@ def collect(request, home: str, env: dict) -> dict:
         if isinstance(info, dict):
             plan = str(info.get("planName") or "").strip()
 
-    metrics = parse(response.data)
-    if not metrics:
-        return common.row(ID, NAME, ABBREV, common.UNAVAILABLE, plan=plan, error="no-data")
-    return common.row(ID, NAME, ABBREV, common.OK, plan=plan, metrics=metrics)
+    return common.finish(PROVIDER, parse(response.data), plan)

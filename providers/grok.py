@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import json
-import math
 import os
-from datetime import datetime
 
 from . import common
 
 ID = "grok"
 NAME = "Grok"
 ABBREV = "G"
+PROVIDER = (ID, NAME, ABBREV)
 HOSTS = ("cli-chat-proxy.grok.com",)
 USAGE_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits"
 PLAN_URL = "https://cli-chat-proxy.grok.com/v1/settings"
@@ -50,43 +49,28 @@ def read_credentials(home: str, env: dict):
                 entries.append(token)
     if not entries:
         return None, common.NOT_SIGNED_IN
-    for token in entries:
-        if not common.is_expired_jwt(token):
-            return {"access_token": token}, None
-    return {"access_token": entries[0]}, None
-
-
-def _epoch(value):
-    iso = common.reset_iso(value)
-    return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp() if iso else None
+    token = next((token for token in entries if not common.is_expired_jwt(token)), entries[0])
+    return {"access_token": token}, None
 
 
 def _period(config: dict):
     period = config.get("currentPeriod")
     if not isinstance(period, dict):
         period = {}
-    start = _epoch(period.get("start"))
-    end = _epoch(period.get("end"))
+    start = common.parse_time(period.get("start"))
+    end = common.parse_time(period.get("end"))
     if start is None or end is None or end <= start:
         return "", ""
-    return str(period.get("type") or "").strip(), common.reset_iso(period.get("end"))
+    return str(period.get("type") or "").strip(), end.isoformat().replace("+00:00", "Z")
 
 
-def _cent(value, default=None):
+def _cent(value):
     if value is None:
-        return default
+        return 0.0
     if not isinstance(value, dict):
         return None
     val = value.get("val")
-    if val is None:
-        return 0.0
-    if isinstance(val, bool):
-        return None
-    try:
-        number = float(val)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
+    return common.number(val if val is not None else 0.0)
 
 
 def parse(payload: dict) -> list:
@@ -100,9 +84,9 @@ def parse(payload: dict) -> list:
         metric = common.metric("Weekly", common.percent(config.get("creditUsagePercent", 0)), period_end)
         if metric:
             metrics.append(metric)
-    cap = _cent(config.get("onDemandCap"), 0.0)
+    cap = _cent(config.get("onDemandCap"))
     if cap and cap > 0:
-        used = _cent(config.get("onDemandUsed"), 0.0)
+        used = _cent(config.get("onDemandUsed"))
         if used is not None:
             metric = common.metric("Pay as you go", common.percent(used / cap * 100.0), period_end)
             if metric:
@@ -117,26 +101,23 @@ def _headers(token: str) -> dict:
 def collect(request, home: str, env: dict) -> dict:
     credentials, code = read_credentials(home, env)
     if code == common.NOT_SIGNED_IN:
-        return common.row(ID, NAME, ABBREV, common.NOT_SIGNED_IN)
+        return common.row(PROVIDER, common.NOT_SIGNED_IN)
     if code:
-        return common.error_row(ID, NAME, ABBREV, code)
+        return common.error_row(PROVIDER, code)
 
     if common.is_expired_jwt(credentials["access_token"]):
-        return common.row(ID, NAME, ABBREV, common.EXPIRED, error="auth-expired")
+        return common.row(PROVIDER, common.EXPIRED, error="auth-expired")
 
     headers = _headers(credentials["access_token"])
     response = request("GET", USAGE_URL, HOSTS, headers)
     if response.status != 200:
-        return common.status_row(ID, NAME, ABBREV, response)
+        return common.status_row(PROVIDER, response)
     if not isinstance(response.data, dict):
-        return common.error_row(ID, NAME, ABBREV, "malformed-response")
+        return common.error_row(PROVIDER, "malformed-response")
 
     plan = ""
     plan_response = request("GET", PLAN_URL, HOSTS, headers)
     if plan_response.status == 200 and isinstance(plan_response.data, dict):
         plan = str(plan_response.data.get("subscription_tier_display") or "").strip()
 
-    metrics = parse(response.data)
-    if not metrics:
-        return common.row(ID, NAME, ABBREV, common.UNAVAILABLE, plan=plan, error="no-data")
-    return common.row(ID, NAME, ABBREV, common.OK, plan=plan, metrics=metrics)
+    return common.finish(PROVIDER, parse(response.data), plan)

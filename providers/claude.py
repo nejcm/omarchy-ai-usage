@@ -18,6 +18,7 @@ from . import common
 ID = "claude"
 NAME = "Claude Code"
 ABBREV = "C"
+PROVIDER = (ID, NAME, ABBREV)
 HOSTS = ("api.anthropic.com", "platform.claude.com")
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
@@ -42,8 +43,7 @@ def _publish_lock(source, destination):
 
 
 def credentials_path(home: str, env: dict) -> str:
-    base = env.get("CLAUDE_CONFIG_DIR") or os.path.join(home, ".claude")
-    return os.path.join(os.path.expanduser(base), ".credentials.json")
+    return os.path.join(common.claude_config_directory(home, env.get("CLAUDE_CONFIG_DIR")), ".credentials.json")
 
 
 def _read_oauth(path: str):
@@ -424,11 +424,11 @@ def _refresh_locked(request, path: str, original: dict, refresh_token: str):
 
 def _refresh_result(error, plan: str):
     if error == "invalid_grant":
-        return common.row(ID, NAME, ABBREV, common.NOT_SIGNED_IN, plan=plan, error="invalid-grant")
+        return common.row(PROVIDER, common.NOT_SIGNED_IN, plan=plan, error="invalid-grant")
     if error == "no-refresh-token":
-        return common.row(ID, NAME, ABBREV, common.EXPIRED, plan=plan, error="auth-expired")
+        return common.row(PROVIDER, common.EXPIRED, plan=plan, error="auth-expired")
     if error and error != "refresh-failed":
-        return common.error_row(ID, NAME, ABBREV, error, plan)
+        return common.error_row(PROVIDER, error, plan)
     return None
 
 
@@ -442,9 +442,9 @@ def _usage(request, token: str):
 def collect(request, home: str, env: dict) -> dict:
     oauth, code, path = read_credentials(home, env)
     if code == common.NOT_SIGNED_IN:
-        return common.row(ID, NAME, ABBREV, common.NOT_SIGNED_IN)
+        return common.row(PROVIDER, common.NOT_SIGNED_IN)
     if code:
-        return common.error_row(ID, NAME, ABBREV, code)
+        return common.error_row(PROVIDER, code)
 
     plan = plan_label(oauth)
     refresh_token = str(oauth.get("refreshToken") or "").strip()
@@ -472,11 +472,8 @@ def collect(request, home: str, env: dict) -> dict:
             response = _usage(request, token)
 
     if response.status != 200:
-        return common.status_row(ID, NAME, ABBREV, response, plan)
+        return common.status_row(PROVIDER, response, plan)
     if not isinstance(response.data, dict):
-        return common.error_row(ID, NAME, ABBREV, "malformed-response", plan)
+        return common.error_row(PROVIDER, "malformed-response", plan)
 
-    metrics = parse(response.data)
-    if not metrics:
-        return common.row(ID, NAME, ABBREV, common.UNAVAILABLE, plan=plan, error="no-data")
-    return common.row(ID, NAME, ABBREV, common.OK, plan=plan, metrics=metrics)
+    return common.finish(PROVIDER, parse(response.data), plan)

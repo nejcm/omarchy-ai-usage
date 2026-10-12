@@ -59,14 +59,14 @@ Column {
         spacing: Style.space(4)
         Label {
           width: parent.width - up.implicitWidth - down.implicitWidth - parent.spacing * 2
-          text: Model.NAMES[provider.modelData]
+          text: Model.PROVIDER_INFO[provider.modelData].name
           anchors.verticalCenter: parent.verticalCenter
           font.bold: true
         }
         PanelActionButton {
           id: up
           iconText: "↑"
-          tooltipText: "Move " + Model.NAMES[provider.modelData] + " up"
+          tooltipText: "Move " + Model.PROVIDER_INFO[provider.modelData].name + " up"
           foreground: root.foreground
           focusable: true
           enabled: provider.index > 0
@@ -75,7 +75,7 @@ Column {
         PanelActionButton {
           id: down
           iconText: "↓"
-          tooltipText: "Move " + Model.NAMES[provider.modelData] + " down"
+          tooltipText: "Move " + Model.PROVIDER_INFO[provider.modelData].name + " down"
           foreground: root.foreground
           focusable: true
           enabled: provider.index < root.hostWidget.providerOrder.length - 1
@@ -85,14 +85,14 @@ Column {
       ProviderToggle {
         text: "Enabled"
         checked: root.hostWidget.enabledProviders.indexOf(provider.modelData) >= 0
-        onClicked: root.hostWidget.toggleProviderList("enabledProviders", provider.modelData)
+        onClicked: root.hostWidget.toggleProviderList("enabledProviders", provider.modelData, root.hostWidget.setting("enabledProviders", Model.DEFAULT_ENABLED))
       }
       ProviderToggle {
         text: "Show in navbar"
         enabled: root.hostWidget.enabledProviders.indexOf(provider.modelData) >= 0
         opacity: enabled ? 1 : 0.45
         checked: root.hostWidget.setting("hiddenProviders", []).indexOf(provider.modelData) < 0
-        onClicked: root.hostWidget.toggleProviderList("hiddenProviders", provider.modelData)
+        onClicked: root.hostWidget.toggleProviderList("hiddenProviders", provider.modelData, root.hostWidget.setting("hiddenProviders", []))
       }
     }
   }

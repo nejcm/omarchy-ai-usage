@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import math
+import os
 import time
 from datetime import datetime, timezone
 
@@ -44,33 +45,52 @@ def percent(value) -> float | None:
     return max(0.0, min(100.0, number))
 
 
-def reset_iso(value) -> str:
-    """An epoch-seconds, epoch-ms, or ISO reset time as UTC ISO, else ''."""
+def number(value) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
+
+
+def parse_time(value) -> datetime | None:
     if value is None:
-        return ""
+        return None
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return _epoch_iso(float(value))
+        return _epoch_time(float(value))
     raw = str(value).strip()
     if not raw:
-        return ""
+        return None
     if raw.isdigit():
-        return _epoch_iso(float(raw))
+        return _epoch_time(float(raw))
     try:
         parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError:
-        return ""
+        return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return parsed.astimezone(timezone.utc)
 
 
-def _epoch_iso(seconds: float) -> str:
+def _epoch_time(seconds: float) -> datetime | None:
     if seconds > 1e12:
         seconds /= 1000.0
     try:
-        return datetime.fromtimestamp(seconds, timezone.utc).isoformat().replace("+00:00", "Z")
+        return datetime.fromtimestamp(seconds, timezone.utc)
     except (OverflowError, OSError, ValueError):
-        return ""
+        return None
+
+
+def reset_iso(value) -> str:
+    """An epoch-seconds, epoch-ms, or ISO reset time as UTC ISO, else ''."""
+    parsed = parse_time(value)
+    return parsed.isoformat().replace("+00:00", "Z") if parsed else ""
+
+
+def claude_config_directory(home: str, override: str | None) -> str:
+    return os.path.expanduser(override or os.path.join(home, ".claude"))
 
 
 def expires_at_ms(value) -> float:
@@ -112,18 +132,17 @@ def metric(label: str, pct: float | None, resets_at: str = "") -> dict | None:
 
 
 def row(
-    provider: str,
-    name: str,
-    abbrev: str,
+    provider: tuple,
     status: str,
     plan: str = "",
     metrics: list | None = None,
     error: str = "",
 ) -> dict:
+    provider_id, name, abbrev = provider
     clean = [m for m in (metrics or []) if isinstance(m, dict)]
     resets = [m["resetsAt"] for m in clean if m.get("resetsAt")]
     return {
-        "provider": provider,
+        "provider": provider_id,
         "name": name,
         "abbrev": abbrev,
         "plan": plan,
@@ -135,16 +154,21 @@ def row(
     }
 
 
-def error_row(provider: str, name: str, abbrev: str, code: str, plan: str = "") -> dict:
-    return row(provider, name, abbrev, ERROR, plan=plan, error=code)
+def error_row(provider: tuple, code: str, plan: str = "") -> dict:
+    return row(provider, ERROR, plan=plan, error=code)
 
 
-def status_row(provider: str, name: str, abbrev: str, response: Response, plan: str = "") -> dict:
+def status_row(provider: tuple, response: Response, plan: str = "") -> dict:
     """Map an HTTP status to a bounded row: 429 rate-limited, 401/403 expired."""
     if response.status == 0:
-        return error_row(provider, name, abbrev, response.error or "network", plan)
+        return error_row(provider, response.error or "network", plan)
     if response.status == 429:
-        return row(provider, name, abbrev, RATE_LIMITED, plan=plan, error="http-429")
+        return row(provider, RATE_LIMITED, plan=plan, error="http-429")
     if response.status in (401, 403):
-        return row(provider, name, abbrev, EXPIRED, plan=plan, error="http-%d" % response.status)
-    return error_row(provider, name, abbrev, "http-%d" % response.status, plan)
+        return row(provider, EXPIRED, plan=plan, error="http-%d" % response.status)
+    return error_row(provider, "http-%d" % response.status, plan)
+
+
+def finish(provider: tuple, metrics: list, plan: str = "") -> dict:
+    return row(provider, OK if metrics else UNAVAILABLE, plan=plan, metrics=metrics,
+               error="" if metrics else "no-data")

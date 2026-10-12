@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import re
 from urllib.parse import urlsplit
@@ -13,6 +12,7 @@ from . import common
 ID = "zai"
 NAME = "Z.ai"
 ABBREV = "Z"
+PROVIDER = (ID, NAME, ABBREV)
 HOSTS = ("api.z.ai",)
 QUOTA_URL = "https://api.z.ai/api/monitor/usage/quota/limit"
 PLAN_URL = "https://api.z.ai/api/biz/subscription/list"
@@ -31,8 +31,8 @@ def config_path(home: str) -> str:
 
 
 def claude_settings_path(home: str, env: dict) -> str:
-    base = str(env.get("CLAUDE_CONFIG_DIR") or "").strip() or os.path.join(home, ".claude")
-    return os.path.join(os.path.expanduser(base), "settings.json")
+    base = common.claude_config_directory(home, str(env.get("CLAUDE_CONFIG_DIR") or "").strip())
+    return os.path.join(base, "settings.json")
 
 
 def _yaml_scalar(value: str) -> str:
@@ -91,16 +91,6 @@ def read_credentials(home: str, env: dict):
     return None, common.NOT_SIGNED_IN
 
 
-def _number(value):
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
-
-
 def _window_minutes(unit, number):
     if unit is None or number is None or number <= 0:
         return None
@@ -122,14 +112,14 @@ def parse(payload: dict) -> list:
             continue
         kind = entry.get("type") or entry.get("name")
         if kind in ("CREDIT_LIMIT", "TOKENS_LIMIT"):
-            window = _window_minutes(_number(entry.get("unit")), _number(entry.get("number")))
+            window = _window_minutes(common.number(entry.get("unit")), common.number(entry.get("number")))
             percent = common.percent(entry.get("percentage"))
             if window is None or percent is None:
                 continue
             label = "Session" if window < SESSION_MAX_MINUTES else "Weekly"
             buckets.setdefault(label, common.metric(label, percent, common.reset_iso(entry.get("nextResetTime"))))
         elif kind == "TIME_LIMIT":
-            used, limit = _number(entry.get("currentValue")), _number(entry.get("usage"))
+            used, limit = common.number(entry.get("currentValue")), common.number(entry.get("usage"))
             if used is None or limit is None or used < 0 or limit <= 0:
                 continue
             metric = common.metric("Web searches", common.percent(used / limit * 100.0),
@@ -156,25 +146,22 @@ def _headers(key: str) -> dict:
 def collect(request, home: str, env: dict) -> dict:
     credentials, code = read_credentials(home, env)
     if code == common.NOT_SIGNED_IN:
-        return common.row(ID, NAME, ABBREV, common.NOT_SIGNED_IN)
+        return common.row(PROVIDER, common.NOT_SIGNED_IN)
     if code:
-        return common.error_row(ID, NAME, ABBREV, code)
+        return common.error_row(PROVIDER, code)
 
     headers = _headers(credentials["api_key"])
     response = request("GET", QUOTA_URL, HOSTS, headers)
     if response.status != 200:
-        return common.status_row(ID, NAME, ABBREV, response)
+        return common.status_row(PROVIDER, response)
     if not isinstance(response.data, dict):
-        return common.error_row(ID, NAME, ABBREV, "malformed-response")
+        return common.error_row(PROVIDER, "malformed-response")
     if _no_coding_plan(response.data):
-        return common.row(ID, NAME, ABBREV, common.UNAVAILABLE, error="no-coding-plan")
+        return common.row(PROVIDER, common.UNAVAILABLE, error="no-coding-plan")
 
     plan = ""
     plan_response = request("GET", PLAN_URL, HOSTS, headers)
     if plan_response.status == 200 and isinstance(plan_response.data, dict):
         plan = _plan_name(plan_response.data)
 
-    metrics = parse(response.data)
-    if not metrics:
-        return common.row(ID, NAME, ABBREV, common.UNAVAILABLE, plan=plan, error="no-data")
-    return common.row(ID, NAME, ABBREV, common.OK, plan=plan, metrics=metrics)
+    return common.finish(PROVIDER, parse(response.data), plan)

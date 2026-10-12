@@ -4,7 +4,6 @@ fake transport; nothing here opens a socket or touches a real credential file.
 
 from __future__ import annotations
 
-import base64
 import io
 import http.client
 import json
@@ -13,7 +12,6 @@ import os
 import signal
 import shutil
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -23,65 +21,11 @@ from pathlib import Path
 from unittest import mock
 from urllib.parse import urlsplit
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
+from support import FUTURE_EXP, PAST_EXP, ROOT, FakeRequest, ProviderCase, jwt, load, make_jwt, write
 
 import usage  # noqa: E402
-from providers import antigravity, claude, codex, common, cursor, grok, opencode, zai  # noqa: E402
+from providers import claude, codex, common, cursor, opencode  # noqa: E402
 import providers as providers_pkg  # noqa: E402
-
-FIXTURES = Path(__file__).parent / "fixtures"
-FUTURE_EXP = 4102444800
-PAST_EXP = 1000000000
-
-
-def load(name):
-    return json.loads((FIXTURES / name).read_text())
-
-
-def jwt(payload):
-    raw = json.dumps(payload).encode()
-    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
-
-
-def make_jwt(exp):
-    return jwt({"alg": "none"}) + "." + jwt({"exp": exp}) + ".sig"
-
-
-class FakeRequest:
-    """Routes a request to a Response by URL substring; records calls."""
-
-    def __init__(self, routes):
-        self.routes = routes
-        self.calls = []
-
-    def __call__(self, method, url, hosts, headers, body=None, error_body=False):
-        self.calls.append({"method": method, "url": url, "hosts": tuple(hosts), "headers": dict(headers)})
-        for needle, response in self.routes.items():
-            if needle in url:
-                return response
-        return common.Response(0, None, "network")
-
-
-def write(home, relative, content):
-    path = Path(home) / relative
-    path.parent.mkdir(parents=True, exist_ok=True)
-    text = content if isinstance(content, str) else json.dumps(content)
-    path.write_text(text)
-    return path
-
-
-class ProviderCase(unittest.TestCase):
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.home = self._tmp.name
-        self.addCleanup(self._tmp.cleanup)
-
-    def rotation_lock(self, path):
-        lock = claude._RefreshLock(str(path.parent / claude.LOCK_NAME))
-        self.assertTrue(lock.acquire())
-        self.addCleanup(lock.release)
-        return lock
 
 
 class ClaudeTests(ProviderCase):
@@ -414,436 +358,6 @@ class CursorTests(ProviderCase):
         write(self.home, self.AUTH, self.valid_auth())
         row = cursor.collect(FakeRequest({"": common.Response(429, None)}), self.home, {})
         self.assertEqual(row["status"], common.RATE_LIMITED)
-
-
-class GrokTests(ProviderCase):
-    AUTH = ".grok/auth.json"
-
-    def valid_auth(self):
-        return {"https://auth.x.ai::client": {"key": make_jwt(FUTURE_EXP), "refresh_token": "r"}}
-
-    def routes(self):
-        return {"billing?format=credits": common.Response(200, load("grok_usage.json")),
-                "settings": common.Response(200, {"subscription_tier_display": "SuperGrok Heavy"})}
-
-    def test_valid(self):
-        write(self.home, self.AUTH, self.valid_auth())
-        request = FakeRequest(self.routes())
-        row = grok.collect(request, self.home, {})
-        self.assertEqual(row["status"], common.OK)
-        self.assertEqual(row["plan"], "SuperGrok Heavy")
-        self.assertEqual([m["label"] for m in row["metrics"]], ["Weekly", "Pay as you go"])
-        self.assertEqual([m["percent"] for m in row["metrics"]], [42.0, 20.0])
-        self.assertEqual(row["metrics"][0]["resetsAt"], "2026-07-07T21:36:52Z")
-        self.assertEqual(row["metrics"][1]["resetsAt"], "2026-07-07T21:36:52Z")
-        self.assertEqual(request.calls[0]["headers"].get("X-XAI-Token-Auth"), "xai-grok-cli")
-
-    def test_non_weekly_period_omits_weekly(self):
-        payload = load("grok_usage.json")
-        payload["config"]["currentPeriod"]["type"] = "USAGE_PERIOD_TYPE_MONTHLY"
-        self.assertEqual([m["label"] for m in grok.parse(payload)], ["Pay as you go"])
-
-    def test_absent_cap_omits_pay_as_you_go(self):
-        payload = load("grok_usage.json")
-        del payload["config"]["onDemandCap"]
-        self.assertEqual([m["label"] for m in grok.parse(payload)], ["Weekly"])
-
-    def test_absent_on_demand_used_is_zero(self):
-        payload = load("grok_usage.json")
-        del payload["config"]["onDemandUsed"]
-        self.assertEqual([m["percent"] for m in grok.parse(payload)], [42.0, 0.0])
-
-    def test_malformed_on_demand_used_is_omitted_not_zero(self):
-        for bad in ("bad", True, False):
-            with self.subTest(val=bad):
-                payload = load("grok_usage.json")
-                payload["config"]["onDemandUsed"] = {"val": bad}
-                self.assertEqual([m["label"] for m in grok.parse(payload)], ["Weekly"])
-
-    def test_malformed_usage_does_not_raise(self):
-        self.assertEqual(grok.parse({"config": "bad"}), [])
-        self.assertEqual(grok.parse({"config": {"currentPeriod": "bad"}}), [])
-        self.assertEqual(grok.parse({"config": {"onDemandCap": {"val": "bad"},
-                                                "currentPeriod": {"type": "USAGE_PERIOD_TYPE_WEEKLY"}}}), [])
-        self.assertEqual(grok.parse({"config": {"onDemandCap": {"val": "bad"}}}), [])
-
-    def test_weekly_period_requires_valid_timestamps(self):
-        for period in ({"type": "USAGE_PERIOD_TYPE_WEEKLY"},
-                       {"type": "USAGE_PERIOD_TYPE_WEEKLY", "start": "garbage", "end": "2026-07-07T21:36:52Z"},
-                       {"type": "USAGE_PERIOD_TYPE_WEEKLY", "start": "2026-07-07T21:36:52Z", "end": "2026-07-01T00:00:00Z"}):
-            with self.subTest(period=period):
-                self.assertEqual(grok.parse({"config": {"currentPeriod": period}}), [])
-
-    def test_missing_auth(self):
-        self.assertEqual(grok.collect(FakeRequest({}), self.home, {})["status"], common.NOT_SIGNED_IN)
-
-    def test_malformed_auth(self):
-        write(self.home, self.AUTH, "{not json")
-        self.assertEqual(grok.collect(FakeRequest({}), self.home, {})["error"], "malformed-auth")
-
-    def test_entry_without_key_is_not_signed_in(self):
-        write(self.home, self.AUTH, {"https://auth.x.ai::client": {"refresh_token": "r"}})
-        self.assertEqual(grok.collect(FakeRequest({}), self.home, {})["status"], common.NOT_SIGNED_IN)
-
-    def test_expired_auth(self):
-        write(self.home, self.AUTH, {"https://auth.x.ai::client": {"key": make_jwt(PAST_EXP)}})
-        request = FakeRequest(self.routes())
-        row = grok.collect(request, self.home, {})
-        self.assertEqual(row["status"], common.EXPIRED)
-        self.assertEqual(request.calls, [])
-
-    def test_live_later_entry_wins_over_expired_first(self):
-        write(self.home, self.AUTH, {"https://auth.x.ai::old": {"key": make_jwt(PAST_EXP)},
-                                     "https://auth.x.ai::client": {"key": make_jwt(FUTURE_EXP)}})
-        request = FakeRequest(self.routes())
-        row = grok.collect(request, self.home, {})
-        self.assertEqual(row["status"], common.OK)
-        self.assertEqual(request.calls[0]["headers"]["Authorization"], "Bearer " + make_jwt(FUTURE_EXP))
-
-    def test_all_expired_entries_still_expired(self):
-        write(self.home, self.AUTH, {"https://auth.x.ai::a": {"key": make_jwt(PAST_EXP)},
-                                     "https://auth.x.ai::b": {"key": make_jwt(PAST_EXP - 1)}})
-        request = FakeRequest(self.routes())
-        row = grok.collect(request, self.home, {})
-        self.assertEqual(row["status"], common.EXPIRED)
-        self.assertEqual(request.calls, [])
-
-    def test_api_key_scope_is_skipped(self):
-        write(self.home, self.AUTH, {"xai::api_key": {"key": "api-key-secret"},
-                                     "https://auth.x.ai::client": {"key": make_jwt(FUTURE_EXP)}})
-        request = FakeRequest(self.routes())
-        row = grok.collect(request, self.home, {})
-        self.assertEqual(row["status"], common.OK)
-        self.assertEqual(request.calls[0]["headers"]["Authorization"], "Bearer " + make_jwt(FUTURE_EXP))
-
-    def test_api_key_only_is_not_signed_in(self):
-        write(self.home, self.AUTH, {"xai::api_key": {"key": "api-key-secret"}})
-        request = FakeRequest(self.routes())
-        row = grok.collect(request, self.home, {})
-        self.assertEqual(row["status"], common.NOT_SIGNED_IN)
-        self.assertEqual(request.calls, [])
-
-    def test_sign_in_expired_on_401(self):
-        write(self.home, self.AUTH, self.valid_auth())
-        row = grok.collect(FakeRequest({"billing?format=credits": common.Response(401, None)}), self.home, {})
-        self.assertEqual(row["status"], common.EXPIRED)
-
-    def test_rate_limited(self):
-        write(self.home, self.AUTH, self.valid_auth())
-        row = grok.collect(FakeRequest({"billing?format=credits": common.Response(429, None)}), self.home, {})
-        self.assertEqual(row["status"], common.RATE_LIMITED)
-
-    def test_token_not_in_row(self):
-        write(self.home, self.AUTH, self.valid_auth())
-        row = grok.collect(FakeRequest(self.routes()), self.home, {})
-        self.assertNotIn(make_jwt(FUTURE_EXP), json.dumps(row))
-
-    def test_grok_home_override(self):
-        env = {"GROK_HOME": str(Path(self.home) / "grokhome")}
-        write(self.home, "grokhome/auth.json", self.valid_auth())
-        self.assertEqual(grok.collect(FakeRequest(self.routes()), self.home, env)["status"], common.OK)
-
-
-    def test_enterprise_oidc_entry_does_not_mask_personal_login(self):
-        enterprise, personal = make_jwt(FUTURE_EXP - 5), make_jwt(FUTURE_EXP)
-        write(self.home, self.AUTH, {"https://idp.acme.example::client": {"key": enterprise},
-                                     "https://auth.x.ai::client": {"key": personal}})
-        request = FakeRequest(self.routes())
-        row = grok.collect(request, self.home, {})
-        self.assertEqual(row["status"], common.OK)
-        self.assertEqual(request.calls[0]["headers"]["Authorization"], "Bearer " + personal)
-
-    def test_enterprise_oidc_only_is_not_signed_in(self):
-        write(self.home, self.AUTH, {"https://idp.acme.example::client": {"key": make_jwt(FUTURE_EXP)}})
-        request = FakeRequest(self.routes())
-        row = grok.collect(request, self.home, {})
-        self.assertEqual(row["status"], common.NOT_SIGNED_IN)
-        self.assertEqual(request.calls, [])
-
-    def test_first_party_issuer_field_is_accepted(self):
-        write(self.home, self.AUTH, {"custom::client": {"key": make_jwt(FUTURE_EXP),
-                                                        "oidc_issuer": "https://auth.x.ai"}})
-        self.assertEqual(grok.collect(FakeRequest(self.routes()), self.home, {})["status"], common.OK)
-
-    def test_legacy_accounts_scope_is_first_party(self):
-        write(self.home, self.AUTH, {"https://accounts.x.ai/sign-in": {"key": make_jwt(FUTURE_EXP)}})
-        self.assertEqual(grok.collect(FakeRequest(self.routes()), self.home, {})["status"], common.OK)
-
-
-class AntigravityTests(ProviderCase):
-    AUTH = ".gemini/antigravity-cli/antigravity-oauth-token"
-
-    def valid_auth(self):
-        return {"token": {"access_token": "SECRET-TOKEN", "token_type": "Bearer",
-                          "refresh_token": "r", "expiry": "2030-01-01T00:00:00Z"},
-                "auth_method": "consumer"}
-
-    def routes(self):
-        return {"retrieveUserQuotaSummary": common.Response(200, load("antigravity_usage.json"))}
-
-    def test_valid(self):
-        write(self.home, self.AUTH, self.valid_auth())
-        request = FakeRequest(self.routes())
-        row = antigravity.collect(request, self.home, {})
-        self.assertEqual(row["status"], common.OK)
-        self.assertEqual([m["label"] for m in row["metrics"]], ["Session", "Weekly", "Claude", "Claude Weekly"])
-        for metric, expected in zip(row["metrics"], [8.0, 14.0, 0.0, 0.0]):
-            self.assertAlmostEqual(metric["percent"], expected, places=6)
-        self.assertEqual(row["metrics"][0]["resetsAt"], "2026-08-23T04:25:14Z")
-        self.assertEqual(request.calls[0]["method"], "POST")
-        self.assertEqual(request.calls[0]["headers"]["Authorization"], "Bearer SECRET-TOKEN")
-        self.assertEqual(request.calls[0]["headers"].get("User-Agent"), "antigravity")
-
-    def test_unknown_bucket_ignored(self):
-        payload = load("antigravity_usage.json")
-        payload["groups"][0]["buckets"].append({"bucketId": "gemini-image-5h", "remainingFraction": 0.1})
-        self.assertEqual([m["label"] for m in antigravity.parse(payload)],
-                         ["Session", "Weekly", "Claude", "Claude Weekly"])
-
-    def test_missing_fraction_drops_line(self):
-        payload = load("antigravity_usage.json")
-        payload["groups"][0]["buckets"][0] = {"bucketId": "gemini-5h"}
-        self.assertEqual([m["label"] for m in antigravity.parse(payload)], ["Weekly", "Claude", "Claude Weekly"])
-
-    def test_duplicate_bucket_first_wins(self):
-        payload = load("antigravity_usage.json")
-        payload["groups"][1]["buckets"].append({"bucketId": "gemini-5h", "remainingFraction": 0.5})
-        self.assertAlmostEqual(antigravity.parse(payload)[0]["percent"], 8.0, places=6)
-
-    def test_fraction_clamped(self):
-        for value, expected in ((-1, 100.0), (2, 0.0)):
-            with self.subTest(value=value):
-                payload = {"groups": [{"buckets": [{"bucketId": "gemini-5h", "remainingFraction": value}]}]}
-                self.assertEqual([m["percent"] for m in antigravity.parse(payload)], [expected])
-
-    def test_fraction_keeps_precision(self):
-        payload = {"groups": [{"buckets": [{"bucketId": "gemini-5h", "remainingFraction": 0.204}]}]}
-        percent = antigravity.parse(payload)[0]["percent"]
-        self.assertAlmostEqual(percent, 79.6, places=6)
-        self.assertLess(percent, 80)
-
-    def test_malformed_usage_does_not_raise(self):
-        self.assertEqual(antigravity.parse({"groups": "bad"}), [])
-        self.assertEqual(antigravity.parse({"groups": [None, {"buckets": "x"}]}), [])
-        self.assertEqual(antigravity.parse({"groups": [{"buckets": [None, {"bucketId": "gemini-5h",
-                                                                           "remainingFraction": "bad"}]}]}), [])
-
-    def test_malformed_group_keeps_valid_buckets(self):
-        payload = load("antigravity_usage.json")
-        payload["groups"].append({"buckets": 42})
-        self.assertEqual([m["label"] for m in antigravity.parse(payload)],
-                         ["Session", "Weekly", "Claude", "Claude Weekly"])
-
-    def test_missing_auth(self):
-        self.assertEqual(antigravity.collect(FakeRequest({}), self.home, {})["status"], common.NOT_SIGNED_IN)
-
-    def test_malformed_auth(self):
-        write(self.home, self.AUTH, "{not json")
-        self.assertEqual(antigravity.collect(FakeRequest({}), self.home, {})["error"], "malformed-auth")
-
-    def test_token_without_access_token_is_not_signed_in(self):
-        write(self.home, self.AUTH, {"token": {"refresh_token": "r"}, "auth_method": "consumer"})
-        request = FakeRequest(self.routes())
-        self.assertEqual(antigravity.collect(request, self.home, {})["status"], common.NOT_SIGNED_IN)
-        self.assertEqual(request.calls, [])
-
-    def test_root_level_access_token_is_read(self):
-        write(self.home, self.AUTH, {"access_token": "SECRET-TOKEN"})
-        self.assertEqual(antigravity.collect(FakeRequest(self.routes()), self.home, {})["status"], common.OK)
-
-    def test_expired_expiry(self):
-        write(self.home, self.AUTH, {"token": {"access_token": "SECRET-TOKEN", "expiry": "2001-09-09T01:46:40Z"}})
-        request = FakeRequest(self.routes())
-        row = antigravity.collect(request, self.home, {})
-        self.assertEqual(row["status"], common.EXPIRED)
-        self.assertEqual(row["error"], "auth-expired")
-        self.assertEqual(request.calls, [])
-
-    def test_sign_in_expired_on_401(self):
-        write(self.home, self.AUTH, self.valid_auth())
-        row = antigravity.collect(FakeRequest({"retrieveUserQuotaSummary": common.Response(401, None)}), self.home, {})
-        self.assertEqual(row["status"], common.EXPIRED)
-
-    def test_rate_limited(self):
-        write(self.home, self.AUTH, self.valid_auth())
-        row = antigravity.collect(FakeRequest({"retrieveUserQuotaSummary": common.Response(429, None)}), self.home, {})
-        self.assertEqual(row["status"], common.RATE_LIMITED)
-
-    def test_no_buckets_is_unavailable(self):
-        write(self.home, self.AUTH, self.valid_auth())
-        row = antigravity.collect(FakeRequest({"retrieveUserQuotaSummary": common.Response(200, {"groups": []})}),
-                                  self.home, {})
-        self.assertEqual(row["status"], common.UNAVAILABLE)
-
-    def test_token_not_in_row(self):
-        write(self.home, self.AUTH, self.valid_auth())
-        row = antigravity.collect(FakeRequest(self.routes()), self.home, {})
-        self.assertNotIn("SECRET-TOKEN", json.dumps(row))
-
-
-class ZaiTests(ProviderCase):
-    AUTH = ".chelper/config.yaml"
-
-    def valid_auth(self):
-        return "plan: glm_coding_plan_global\napi_key: SECRET-KEY\n"
-
-    def routes(self):
-        return {"quota/limit": common.Response(200, load("zai_quota.json")),
-                "subscription/list": common.Response(200, load("zai_subscription.json"))}
-
-    def test_valid(self):
-        write(self.home, self.AUTH, self.valid_auth())
-        request = FakeRequest(self.routes())
-        row = zai.collect(request, self.home, {})
-        self.assertEqual(row["status"], common.OK)
-        self.assertEqual(row["plan"], "GLM Coding Max")
-        self.assertEqual([m["label"] for m in row["metrics"]], ["Session", "Weekly", "Web searches"])
-        self.assertEqual([m["percent"] for m in row["metrics"]], [25.0, 42.0, 1.0])
-        self.assertEqual(row["metrics"][0]["resetsAt"], "2026-01-01T00:00:00Z")
-        self.assertEqual(request.calls[0]["headers"]["Authorization"], "Bearer SECRET-KEY")
-
-    def test_missing_key(self):
-        self.assertEqual(zai.collect(FakeRequest({}), self.home, {})["status"], common.NOT_SIGNED_IN)
-
-    def test_quoted_key(self):
-        write(self.home, self.AUTH, 'api_key: "SECRET-KEY"\n')
-        self.assertEqual(zai.collect(FakeRequest(self.routes()), self.home, {})["status"], common.OK)
-
-    def test_revoked_key_is_not_signed_in(self):
-        write(self.home, self.AUTH, "plan: glm_coding_plan_global\napi_key: null\n")
-        self.assertEqual(zai.collect(FakeRequest({}), self.home, {})["status"], common.NOT_SIGNED_IN)
-
-    def test_inline_comment_on_null_falls_back(self):
-        write(self.home, self.AUTH, "api_key: null # signed out\n")
-        write(self.home, ".claude/settings.json", {"env": {
-            "ANTHROPIC_AUTH_TOKEN": "SECRET-KEY", "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic"}})
-        self.assertEqual(zai.collect(FakeRequest(self.routes()), self.home, {})["status"], common.OK)
-
-    def test_tab_before_comment_is_not_a_key(self):
-        write(self.home, self.AUTH, "api_key: null\t# signed out\n")
-        self.assertEqual(zai.collect(FakeRequest({}), self.home, {})["status"], common.NOT_SIGNED_IN)
-
-    def test_comment_only_value_is_not_a_key(self):
-        write(self.home, self.AUTH, "api_key: # signed out\n")
-        self.assertEqual(zai.collect(FakeRequest({}), self.home, {})["status"], common.NOT_SIGNED_IN)
-
-    def test_inline_comment_is_stripped(self):
-        write(self.home, self.AUTH, "api_key: SECRET-KEY # note\n")
-        request = FakeRequest(self.routes())
-        self.assertEqual(zai.collect(request, self.home, {})["status"], common.OK)
-        self.assertEqual(request.calls[0]["headers"]["Authorization"], "Bearer SECRET-KEY")
-
-    def test_hash_inside_quotes_is_kept(self):
-        write(self.home, self.AUTH, 'api_key: "SEC#RET"\n')
-        request = FakeRequest(self.routes())
-        self.assertEqual(zai.collect(request, self.home, {})["status"], common.OK)
-        self.assertEqual(request.calls[0]["headers"]["Authorization"], "Bearer SEC#RET")
-
-    def test_unreadable_config_falls_back(self):
-        path = Path(self.home) / self.AUTH
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"api_key: \xff\xfe\n")
-        write(self.home, ".claude/settings.json", {"env": {
-            "ANTHROPIC_AUTH_TOKEN": "SECRET-KEY", "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic"}})
-        self.assertEqual(zai.collect(FakeRequest(self.routes()), self.home, {})["status"], common.OK)
-
-    def test_unreadable_config_without_fallback_is_not_signed_in(self):
-        path = Path(self.home) / self.AUTH
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"\xff\xfe")
-        self.assertEqual(zai.collect(FakeRequest({}), self.home, {})["status"], common.NOT_SIGNED_IN)
-
-    def test_keyless_cli_file_falls_back_to_claude_settings(self):
-        write(self.home, self.AUTH, "lang: en_US\n")
-        write(self.home, ".claude/settings.json", {"env": {
-            "ANTHROPIC_AUTH_TOKEN": "SECRET-KEY", "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic"}})
-        self.assertEqual(zai.collect(FakeRequest(self.routes()), self.home, {})["status"], common.OK)
-
-    def test_malformed_claude_settings_is_error(self):
-        write(self.home, ".claude/settings.json", "{not json")
-        self.assertEqual(zai.collect(FakeRequest({}), self.home, {})["error"], "malformed-auth")
-
-    def test_claude_settings_fallback(self):
-        write(self.home, ".claude/settings.json", {"env": {
-            "ANTHROPIC_AUTH_TOKEN": "SECRET-KEY", "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic"}})
-        self.assertEqual(zai.collect(FakeRequest(self.routes()), self.home, {})["status"], common.OK)
-
-    def test_claude_settings_ignored_for_other_base_url(self):
-        write(self.home, ".claude/settings.json", {"env": {
-            "ANTHROPIC_AUTH_TOKEN": "anthropic-token", "ANTHROPIC_BASE_URL": "https://api.anthropic.com"}})
-        request = FakeRequest(self.routes())
-        row = zai.collect(request, self.home, {})
-        self.assertEqual(row["status"], common.NOT_SIGNED_IN)
-        self.assertEqual(request.calls, [])
-
-    def test_token_not_in_row(self):
-        write(self.home, self.AUTH, self.valid_auth())
-        row = zai.collect(FakeRequest(self.routes()), self.home, {})
-        self.assertNotIn("SECRET-KEY", json.dumps(row))
-
-    def test_malformed_usage_does_not_raise(self):
-        self.assertEqual(zai.parse({"data": "bad"}), [])
-        self.assertEqual(zai.parse({"data": {"limits": "bad"}}), [])
-        self.assertEqual(zai.parse({"data": {"limits": [None, "x"]}}), [])
-
-    def test_unknown_unit_ignored(self):
-        payload = load("zai_quota.json")
-        payload["data"]["limits"][0] = {"type": "CREDIT_LIMIT", "unit": 99, "number": 1, "percentage": 70}
-        self.assertEqual([m["label"] for m in zai.parse(payload)], ["Weekly", "Web searches"])
-
-    def test_missing_percentage_is_omitted_not_zero(self):
-        payload = {"data": {"limits": [{"type": "TOKENS_LIMIT", "unit": 3, "number": 5}]}}
-        self.assertEqual(zai.parse(payload), [])
-
-    def test_daily_window_is_weekly(self):
-        payload = {"data": {"limits": [
-            {"type": "TOKENS_LIMIT", "unit": 4, "number": 1, "percentage": 60, "nextResetTime": 1767225600000}]}}
-        self.assertEqual([m["label"] for m in zai.parse(payload)], ["Weekly"])
-
-    def test_web_searches_requires_positive_limit(self):
-        payload = {"data": {"limits": [{"type": "TIME_LIMIT", "unit": 5, "number": 1, "usage": 0, "currentValue": 0}]}}
-        self.assertEqual(zai.parse(payload), [])
-
-    def test_root_level_limits(self):
-        payload = {"success": True, "limits": [{"type": "TOKENS_LIMIT", "unit": 3, "number": 5, "percentage": 25}]}
-        self.assertEqual([m["label"] for m in zai.parse(payload)], ["Session"])
-
-    def test_no_coding_plan(self):
-        write(self.home, self.AUTH, self.valid_auth())
-        response = common.Response(200, {"success": False, "code": 500, "msg": "No GLM Coding Plan"})
-        row = zai.collect(FakeRequest({"quota/limit": response}), self.home, {})
-        self.assertEqual(row["status"], common.UNAVAILABLE)
-        self.assertEqual(row["error"], "no-coding-plan")
-
-    def test_empty_limits_is_unavailable(self):
-        write(self.home, self.AUTH, self.valid_auth())
-        row = zai.collect(FakeRequest({"quota/limit": common.Response(200, {"success": True, "data": {"limits": []}})}),
-                          self.home, {})
-        self.assertEqual(row["status"], common.UNAVAILABLE)
-
-    def test_plan_failure_keeps_metrics(self):
-        write(self.home, self.AUTH, self.valid_auth())
-        routes = {"quota/limit": common.Response(200, load("zai_quota.json")),
-                  "subscription/list": common.Response(500, None)}
-        row = zai.collect(FakeRequest(routes), self.home, {})
-        self.assertEqual(row["status"], common.OK)
-        self.assertEqual(row["plan"], "")
-
-    def test_invalid_key_on_403(self):
-        write(self.home, self.AUTH, self.valid_auth())
-        row = zai.collect(FakeRequest({"quota/limit": common.Response(403, None)}), self.home, {})
-        self.assertEqual(row["status"], common.EXPIRED)
-
-    def test_rate_limited(self):
-        write(self.home, self.AUTH, self.valid_auth())
-        row = zai.collect(FakeRequest({"quota/limit": common.Response(429, None)}), self.home, {})
-        self.assertEqual(row["status"], common.RATE_LIMITED)
-
-    def test_claude_config_dir_override(self):
-        env = {"CLAUDE_CONFIG_DIR": str(Path(self.home) / "cc")}
-        write(self.home, "cc/settings.json", {"env": {
-            "ANTHROPIC_AUTH_TOKEN": "SECRET-KEY", "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic"}})
-        self.assertEqual(zai.collect(FakeRequest(self.routes()), self.home, env)["status"], common.OK)
 
 
 class RefreshLockTests(ProviderCase):
@@ -1316,7 +830,7 @@ assert.equal(root.rows[0].status, "stale");
             assert qml[start:end].endswith("\n  }")
             extracted[name] = qml[start:end]
         methods = "\n".join(extracted[name] for name in ("saveSetting", "toggleProviderList"))
-        script = source + """
+        script = source + "\nconst settingsQml = " + json.dumps((ROOT / "Settings.qml").read_text()) + ";" + """
 const assert = require("node:assert/strict");
 const MODEL = "io.github.nejcm.ai-usage";
 const Model = { DEFAULT_ENABLED: DEFAULT_ENABLED, enabledInOrder: enabledInOrder,
@@ -1361,14 +875,28 @@ function makeWidget(host, injected) {
   host.register(root);
   return { root: root, setting: setting, saveSetting: saveSetting, toggleProviderList: toggleProviderList };
 }
+function clickToggle(widget, name, id) {
+  const line = settingsQml.split("\\n").find(line => line.includes('toggleProviderList("' + name + '"'));
+  assert(line);
+  new Function("root", "provider", "Model", line.trim().replace(/^onClicked:\\s*/, ""))(
+    {hostWidget: widget.root}, {modelData: id}, Model);
+}
 const host = makeHost();
 const a = makeWidget(host, host.disk());
 const b = makeWidget(host, host.disk());
 
 assert.deepEqual(a.setting("enabledProviders", DEFAULT_ENABLED), ["claude", "codex"]);
-a.toggleProviderList("enabledProviders", "cursor");
+clickToggle(a, "enabledProviders", "cursor");
 assert.deepEqual(host.disk().enabledProviders, ["claude", "codex", "cursor"]);
+assert.deepEqual(DEFAULT_ENABLED, ["claude", "codex"]);
 assert.equal(host.shell.barConfig.layout.right[0].enabledProviders, undefined);
+clickToggle(b, "hiddenProviders", "cursor");
+assert.deepEqual(host.disk().hiddenProviders, ["cursor"]);
+clickToggle(b, "hiddenProviders", "cursor");
+assert.deepEqual(host.disk().hiddenProviders, []);
+clickToggle(a, "enabledProviders", "cursor");
+assert.deepEqual(host.disk().enabledProviders, ["claude", "codex"]);
+clickToggle(a, "enabledProviders", "cursor");
 
 b.saveSetting("warningState", { "cursor:Cursor models": { period: "t", fired: true } });
 assert.deepEqual(host.disk().enabledProviders, ["claude", "codex", "cursor"]);
@@ -1394,9 +922,13 @@ console.log("OK");
 const assert = require("node:assert/strict");
 assert.deepEqual(providerOrder(["cursor", "bad", "cursor"]), ["cursor", "claude", "codex", "opencode", "grok", "antigravity", "zai"]);
 assert.deepEqual(providerOrder(null), PROVIDERS);
-assert.deepEqual(selectedProviders(PROVIDERS, ["claude"], ["cursor"]), ["codex", "opencode", "grok", "antigravity", "zai"]);
+assert.deepEqual(selectedProviders(PROVIDERS, ["claude", "cursor"]), ["codex", "opencode", "grok", "antigravity", "zai"]);
 assert.deepEqual(selectedProviders(PROVIDERS, PROVIDERS), []);
-assert.deepEqual(selectedProviders(PROVIDERS, {}, {}), PROVIDERS);
+assert.deepEqual(selectedProviders(PROVIDERS, {}), PROVIDERS);
+assert.deepEqual(selectedProviders(PROVIDERS, null), PROVIDERS);
+assert.deepEqual(enabledInOrder(["cursor", "codex", "claude"], ["claude", "cursor"]), ["cursor", "claude"]);
+assert.deepEqual(enabledInOrder(PROVIDERS, PROVIDERS), PROVIDERS);
+for (const value of [[], {}, null]) assert.deepEqual(enabledInOrder(PROVIDERS, value), []);
 const rows = PROVIDERS.map(provider => ({provider, status:"ok", metrics:[{percent:70.4}]}));
 assert.deepEqual(orderedRows(rows, ["cursor", "claude"]).map(row => row.provider), ["cursor", "claude"]);
 assert.equal(barValue(rows[0], "remaining"), "30%");
@@ -1488,6 +1020,67 @@ for (const [value, color] of [[0,"#4ade80"], [75,"#4ade80"],
         self.assertTrue(common.reset_iso(1793080672462).startswith("2026-"))
         self.assertEqual(common.reset_iso(""), "")
         self.assertEqual(common.reset_iso("garbage"), "")
+
+    def test_number(self):
+        for value in (None, True, False, "bad", "", [], {}, "NaN", "Infinity", "-Infinity", float("nan"), float("inf")):
+            with self.subTest(value=value):
+                self.assertIsNone(common.number(value))
+        for value, expected in ((0, 0.0), (-1.5, -1.5), (" 42.5 ", 42.5), (1e308, 1e308)):
+            with self.subTest(value=value):
+                self.assertEqual(common.number(value), expected)
+
+    def test_parse_time(self):
+        expected = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        for value in (1767225600, 1767225600000, "1767225600", "1767225600000",
+                      "2026-01-01T00:00:00Z", "2026-01-01T00:00:00", "2026-01-01T02:00:00+02:00"):
+            with self.subTest(value=value):
+                self.assertEqual(common.parse_time(value), expected)
+                self.assertEqual(common.reset_iso(value), "2026-01-01T00:00:00Z")
+        for value in (None, "", "bad", True, False, float("nan"), float("inf"), 1e308):
+            with self.subTest(value=value):
+                self.assertIsNone(common.parse_time(value))
+                self.assertEqual(common.reset_iso(value), "")
+
+    def test_finish_row_shape(self):
+        for metrics, status, error in (([], common.UNAVAILABLE, "no-data"),
+                                       ([common.metric("Session", 42.0, "2030-01-01T00:00:00Z")], common.OK, "")):
+            with self.subTest(status=status), mock.patch.object(common, "now_iso", return_value="stamp"):
+                self.assertEqual(common.finish(claude.PROVIDER, metrics, "Max"), {
+                    "provider": "claude", "name": "Claude Code", "abbrev": "C", "plan": "Max",
+                    "status": status, "error": error, "metrics": metrics,
+                    "resetAt": "2030-01-01T00:00:00Z" if metrics else "", "refreshedAt": "stamp",
+                })
+
+    def test_claude_config_paths_keep_whitespace_behavior(self):
+        for override, claude_dir, zai_dir in ((None, "/home/test/.claude", "/home/test/.claude"),
+                                              ("", "/home/test/.claude", "/home/test/.claude"),
+                                              ("   ", "   ", "/home/test/.claude"),
+                                              (" /custom ", " /custom ", "/custom"),
+                                              ("/custom", "/custom", "/custom")):
+            with self.subTest(override=override):
+                self.assertEqual(claude.credentials_path("/home/test", {"CLAUDE_CONFIG_DIR": override}),
+                                 claude_dir + "/.credentials.json")
+                self.assertEqual(providers_pkg.zai.claude_settings_path("/home/test", {"CLAUDE_CONFIG_DIR": override}),
+                                 zai_dir + "/settings.json")
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_provider_names_and_logos(self):
+        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        script = source + """
+const assert = require("node:assert/strict");
+assert.deepEqual(PROVIDERS, ["claude", "codex", "opencode", "cursor", "grok", "antigravity", "zai"]);
+assert.deepEqual(PROVIDERS.map(id => PROVIDER_INFO[id].name),
+  ["Claude Code", "Codex", "OpenCode", "Cursor", "Grok", "Antigravity", "Z.ai"]);
+assert.deepEqual(PROVIDERS.map(id => logo(id, false)),
+  ["claude.svg", "chatgpt.svg", "opencode.svg", "cursor.svg", "grok.svg", "antigravity.svg", "z.ai.svg"]);
+assert.deepEqual(PROVIDERS.map(id => logo(id, true)),
+  ["claude.white.svg", "chatgpt.white.svg", "opencode.white.svg", "cursor.white.svg", "grok.white.svg", "antigravity.white.svg", "z.ai.white.svg"]);
+assert.deepEqual(PROVIDERS.map(panelLogo),
+  ["claude.svg", "chatgpt.white.svg", "opencode.svg", "cursor.white.svg", "grok.white.svg", "antigravity.svg", "z.ai.white.svg"]);
+assert.equal(logo("unknown", true), "");
+assert.equal(panelLogo("unknown"), "");
+"""
+        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
 
     def test_jwt_exp_and_non_dict_payload(self):
         self.assertEqual(common.jwt_exp(make_jwt(FUTURE_EXP)), FUTURE_EXP)

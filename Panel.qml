@@ -217,7 +217,7 @@ Panel {
                     height: width
                     fillMode: Image.PreserveAspectFit
                     sourceSize: Qt.size(-1, height * 2)
-                    source: Qt.resolvedUrl("assets/" + Model.logo(card.modelData.provider, card.modelData.provider === "codex" || card.modelData.provider === "cursor" || card.modelData.provider === "grok" || card.modelData.provider === "zai"))
+                    source: Qt.resolvedUrl("assets/" + Model.panelLogo(card.modelData.provider))
                   }
 
                   Text {

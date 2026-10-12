@@ -11,6 +11,7 @@ from . import common
 ID = "codex"
 NAME = "Codex"
 ABBREV = "X"
+PROVIDER = (ID, NAME, ABBREV)
 HOSTS = ("chatgpt.com",)
 USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 SESSION_SECONDS = 18000
@@ -105,26 +106,23 @@ def parse(payload: dict) -> list:
 def collect(request, home: str, env: dict) -> dict:
     credentials, code = read_credentials(home, env)
     if code == "api-key-auth":
-        return common.row(ID, NAME, ABBREV, common.UNAVAILABLE, error="api-key-auth")
+        return common.row(PROVIDER, common.UNAVAILABLE, error="api-key-auth")
     if code == common.NOT_SIGNED_IN:
-        return common.row(ID, NAME, ABBREV, common.NOT_SIGNED_IN)
+        return common.row(PROVIDER, common.NOT_SIGNED_IN)
     if code:
-        return common.error_row(ID, NAME, ABBREV, code)
+        return common.error_row(PROVIDER, code)
 
     if common.is_expired_jwt(credentials["access_token"]):
-        return common.row(ID, NAME, ABBREV, common.EXPIRED, error="auth-expired")
+        return common.row(PROVIDER, common.EXPIRED, error="auth-expired")
 
     headers = {"Authorization": "Bearer " + credentials["access_token"]}
     if credentials["account_id"]:
         headers["ChatGPT-Account-Id"] = credentials["account_id"]
     response = request("GET", USAGE_URL, HOSTS, headers)
     if response.status != 200:
-        return common.status_row(ID, NAME, ABBREV, response)
+        return common.status_row(PROVIDER, response)
     if not isinstance(response.data, dict):
-        return common.error_row(ID, NAME, ABBREV, "malformed-response")
+        return common.error_row(PROVIDER, "malformed-response")
 
     plan = format_plan(response.data.get("plan_type"))
-    metrics = parse(response.data)
-    if not metrics:
-        return common.row(ID, NAME, ABBREV, common.UNAVAILABLE, plan=plan, error="no-data")
-    return common.row(ID, NAME, ABBREV, common.OK, plan=plan, metrics=metrics)
+    return common.finish(PROVIDER, parse(response.data), plan)
