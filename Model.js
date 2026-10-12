@@ -213,9 +213,7 @@ function planText(row) {
 
 function statusText(row) {
   if (!row || row.status === "ok") return ""
-  if (row.error && ERROR_TEXT[row.error]) return ERROR_TEXT[row.error]
-  var label = STATUS[row.status] || row.status
-  return row.error ? label + " (" + row.error + ")" : label
+  return ERROR_TEXT[row.error] || statusDetail(row)
 }
 
 function statusDetail(row) {
