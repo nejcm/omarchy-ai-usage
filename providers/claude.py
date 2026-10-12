@@ -93,7 +93,7 @@ def parse(payload: dict) -> list:
     return metrics
 
 
-# Claude Code alone reclaims stale directories; pathname rmdir cannot be fenced.
+# Stale reclaim mirrors Claude Code's proper-lockfile; its pathname rmdir is equally unfenced.
 class _RefreshLock:
 
     def __init__(self, path: str):
@@ -107,8 +107,22 @@ class _RefreshLock:
         self._stop = None
         self._thread = None
 
+    def _reclaim_stale(self) -> bool:
+        try:
+            stat = os.lstat(self.path)
+            if not os.path.isdir(self.path) or os.path.islink(self.path):
+                return False
+            if time.time_ns() - stat.st_mtime_ns <= LOCK_STALE_SECONDS * 1_000_000_000:
+                return False
+            os.rmdir(self.path)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return False
+        return True
+
     def acquire(self) -> bool:
-        if os.path.lexists(self.path):
+        if os.path.lexists(self.path) and not self._reclaim_stale():
             return False
         private = None
         try:
@@ -266,7 +280,7 @@ def _capture(func, result):
         result.flush()
 
 
-def refresh_access_token(request, refresh_token: str, lock=None):
+def refresh_access_token(request, refresh_token: str, lock=None, scopes: str = SCOPES):
     """Exchange a refresh token; (fields, None) on success, else (None, code)."""
     if not refresh_token:
         return None, "no-refresh-token"
@@ -274,7 +288,7 @@ def refresh_access_token(request, refresh_token: str, lock=None):
         "grant_type": "refresh_token",
         "refresh_token": refresh_token,
         "client_id": CLIENT_ID,
-        "scope": SCOPES,
+        "scope": scopes,
     }).encode("utf-8")
 
     def exchange():
@@ -308,6 +322,31 @@ def _expiry_ms(seconds):
         return None
 
 
+def _apply_rotation(oauth: dict, rotated: dict) -> dict:
+    """Merge token-endpoint fields into a credentials mapping, as the CLI stores them."""
+    oauth = dict(oauth)
+    oauth["accessToken"] = str(rotated["access_token"]).strip()
+    if str(rotated.get("refresh_token") or "").strip():
+        oauth["refreshToken"] = str(rotated["refresh_token"]).strip()
+    expiry = _expiry_ms(_finite_seconds(rotated.get("expires_in")))
+    if expiry is not None:
+        oauth["expiresAt"] = expiry
+    refresh_expiry = _expiry_ms(_finite_seconds(rotated.get("refresh_token_expires_in")))
+    if refresh_expiry is not None:
+        oauth["refreshTokenExpiresAt"] = refresh_expiry
+    scope = rotated.get("scope")
+    if isinstance(scope, str) and scope.split():
+        oauth["scopes"] = scope.split()
+    return oauth
+
+
+def _requested_scopes(oauth: dict) -> str:
+    scopes = oauth.get("scopes")
+    if isinstance(scopes, list) and scopes and all(isinstance(item, str) and item.strip() for item in scopes):
+        return " ".join(scopes)
+    return SCOPES
+
+
 def persist_rotation(path: str, original: dict, rotated: dict, lock: _RefreshLock) -> str:
     """Atomically write rotated tokens only while the refresh lock is owned."""
     access = str(rotated.get("access_token") or "").strip()
@@ -326,14 +365,7 @@ def persist_rotation(path: str, original: dict, rotated: dict, lock: _RefreshLoc
     if current != original:
         return "changed"
 
-    oauth = dict(current)
-    oauth["accessToken"] = access
-    if str(rotated.get("refresh_token") or "").strip():
-        oauth["refreshToken"] = str(rotated["refresh_token"]).strip()
-    expiry = _expiry_ms(_finite_seconds(rotated.get("expires_in")))
-    if expiry is not None:
-        oauth["expiresAt"] = expiry
-    updated = dict(document, claudeAiOauth=oauth)
+    updated = dict(document, claudeAiOauth=_apply_rotation(current, rotated))
 
     directory = os.path.dirname(path) or "."
     try:
@@ -370,7 +402,7 @@ def _refresh_locked(request, path: str, original: dict, refresh_token: str):
             return current, None, True
         if not lock.still_owned():
             return None, "lock-lost", False
-        fields, error = refresh_access_token(request, refresh_token, lock)
+        fields, error = refresh_access_token(request, refresh_token, lock, _requested_scopes(original))
         if error:
             return None, error, False
         if not lock.still_owned():
@@ -385,14 +417,7 @@ def _refresh_locked(request, path: str, original: dict, refresh_token: str):
             return None, "persist-changed", False
         if status != "ok":
             return None, "persist-" + status, False
-        oauth = dict(original)
-        oauth["accessToken"] = str(fields["access_token"]).strip()
-        if str(fields.get("refresh_token") or "").strip():
-            oauth["refreshToken"] = str(fields["refresh_token"]).strip()
-        expiry = _expiry_ms(_finite_seconds(fields.get("expires_in")))
-        if expiry is not None:
-            oauth["expiresAt"] = expiry
-        return oauth, None, False
+        return _apply_rotation(original, fields), None, False
     finally:
         lock.release()
 

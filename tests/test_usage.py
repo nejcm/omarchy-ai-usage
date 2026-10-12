@@ -182,6 +182,21 @@ class ClaudeTests(ProviderCase):
         self.assertEqual(fields["access_token"], "new")
         self.assertIsNone(error)
 
+    def test_rotation_persists_scopes_and_refresh_expiry(self):
+        original = {"accessToken": "old", "refreshToken": "r", "scopes": ["user:inference", "user:plugins"],
+                    "refreshTokenExpiresAt": 1}
+        path = write(self.home, self.AUTH, {"claudeAiOauth": original})
+        self.assertEqual(claude._requested_scopes(original), "user:inference user:plugins")
+        self.assertEqual(claude._requested_scopes({}), claude.SCOPES)
+        status = claude.persist_rotation(str(path), original,
+                                         {"access_token": "new", "refresh_token_expires_in": 3600,
+                                          "scope": "user:inference user:profile"},
+                                         self.rotation_lock(path))
+        self.assertEqual(status, "ok")
+        saved = json.loads(path.read_text())["claudeAiOauth"]
+        self.assertEqual(saved["scopes"], ["user:inference", "user:profile"])
+        self.assertGreater(saved["refreshTokenExpiresAt"], time.time() * 1000)
+
     def test_whole_object_compare_detects_refresh_change(self):
         path = write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "same", "refreshToken": "current"}})
         status = claude.persist_rotation(str(path), {"accessToken": "same", "refreshToken": "old"},
@@ -455,17 +470,30 @@ class RefreshLockTests(ProviderCase):
         self.assertFalse(lock.acquire())
         self.assertTrue(os.path.isdir(lock.path))
 
-    def test_stale_lock_is_left_for_cli(self):
+    def test_stale_lock_is_reclaimed(self):
         os.mkdir(self.lock_path())
         old = time.time() - claude.LOCK_STALE_SECONDS - 5
         os.utime(self.lock_path(), (old, old))
-        lock = claude._RefreshLock(self.lock_path())
         before = os.stat(self.lock_path())
-        with mock.patch("providers.claude.os.rmdir", side_effect=AssertionError("must not remove")):
-            self.assertFalse(lock.acquire())
-        self.assertTrue(os.path.isdir(lock.path))
-        self.assertEqual(os.stat(lock.path).st_ino, before.st_ino)
-        self.assertEqual(os.stat(lock.path).st_mtime_ns, before.st_mtime_ns)
+        lock = claude._RefreshLock(self.lock_path())
+        self.assertTrue(lock.acquire())
+        self.assertNotEqual(os.stat(lock.path).st_ino, before.st_ino)
+        lock.release()
+
+    def test_released_lock_can_be_reacquired(self):
+        first = claude._RefreshLock(self.lock_path())
+        self.assertTrue(first.acquire())
+        first.release()
+        second = claude._RefreshLock(self.lock_path())
+        self.assertTrue(second.acquire())
+        second.release()
+
+    def test_stale_lock_file_is_not_removed(self):
+        Path(self.lock_path()).write_text("")
+        old = time.time() - claude.LOCK_STALE_SECONDS - 5
+        os.utime(self.lock_path(), (old, old))
+        self.assertFalse(claude._RefreshLock(self.lock_path()).acquire())
+        self.assertTrue(os.path.isfile(self.lock_path()))
 
     def test_concurrent_acquisition_does_not_replace_peer(self):
         lock = claude._RefreshLock(self.lock_path())
