@@ -109,16 +109,15 @@ class ClaudeTests(ProviderCase):
         self.assertEqual(request.calls, [])
 
     def test_persist_failure_is_error(self):
-        write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "old-token", "refreshToken": "old-refresh",
-                                                        "expiresAt": PAST_EXP * 1000}})
+        path = write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "old-token", "refreshToken": "old-refresh",
+                                                              "expiresAt": PAST_EXP * 1000}})
         request = FakeRequest({"oauth/token": common.Response(200, {"access_token": "new-token",
                                                                     "refresh_token": "new-refresh",
-                                                                    "expires_in": 3600}),
-                               "oauth/usage": common.Response(200, load("claude_usage.json"))})
+                                                                    "expires_in": 3600})})
         with mock.patch("providers.claude.os.replace", side_effect=OSError("boom")):
             row = claude.collect(request, self.home, {})
-        self.assertEqual(row["status"], common.ERROR)
         self.assertEqual(row["error"], "persist-write-failed")
+        self.assertEqual(json.loads(path.read_text())["claudeAiOauth"]["accessToken"], "old-token")
 
     def test_nonfinite_expiry_does_not_discard_rotation(self):
         request = FakeRequest({"": common.Response(200, {"access_token": "new", "expires_in": "Infinity"})})
@@ -134,8 +133,7 @@ class ClaudeTests(ProviderCase):
         self.assertEqual(claude._requested_scopes({}), claude.SCOPES)
         status = claude.persist_rotation(str(path), original,
                                          {"access_token": "new", "refresh_token_expires_in": 3600,
-                                          "scope": "user:inference user:profile"},
-                                         self.rotation_lock(path))
+                                          "scope": "user:inference user:profile"})
         self.assertEqual(status, "ok")
         saved = json.loads(path.read_text())["claudeAiOauth"]
         self.assertEqual(saved["scopes"], ["user:inference", "user:profile"])
@@ -144,13 +142,13 @@ class ClaudeTests(ProviderCase):
     def test_whole_object_compare_detects_refresh_change(self):
         path = write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "same", "refreshToken": "current"}})
         status = claude.persist_rotation(str(path), {"accessToken": "same", "refreshToken": "old"},
-                                         {"access_token": "new"}, self.rotation_lock(path))
+                                         {"access_token": "new"})
         self.assertEqual(status, "changed")
 
     def test_concurrent_rotation_skip(self):
         path = write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "current-token", "refreshToken": "r"}})
         status = claude.persist_rotation(str(path), {"accessToken": "stale-token"},
-                                         {"access_token": "new-token"}, self.rotation_lock(path))
+                                         {"access_token": "new-token"})
         self.assertEqual(status, "changed")
         self.assertEqual(json.loads(path.read_text())["claudeAiOauth"]["accessToken"], "current-token")
 
@@ -550,7 +548,7 @@ class ClaudeLockFlowTests(ProviderCase):
         return {"claudeAiOauth": {"accessToken": "old-token", "refreshToken": "old-refresh",
                                   "expiresAt": PAST_EXP * 1000}}
 
-    def test_lock_lost_aborts_persist_and_keeps_replacement(self):
+    def test_lock_lost_during_exchange_still_persists_rotation(self):
         path = write(self.home, self.AUTH, self.expired())
         lock_path = str(path.parent / claude.LOCK_NAME)
 
@@ -558,14 +556,41 @@ class ClaudeLockFlowTests(ProviderCase):
             if "oauth/token" in url:
                 os.rmdir(lock_path)
                 os.mkdir(lock_path)
-                return common.Response(200, {"access_token": "new-token", "expires_in": 3600})
+                return common.Response(200, {"access_token": "new-token", "refresh_token": "new-refresh",
+                                             "expires_in": 3600})
             return common.Response(200, load("claude_usage.json"))
 
         row = claude.collect(request, self.home, {})
-        self.assertEqual(row["status"], common.ERROR)
-        self.assertEqual(row["error"], "lock-lost")
-        self.assertEqual(json.loads(path.read_text())["claudeAiOauth"]["accessToken"], "old-token")
+        self.assertEqual(row["status"], common.OK)
+        saved = json.loads(path.read_text())["claudeAiOauth"]
+        self.assertEqual(saved["accessToken"], "new-token")
+        self.assertEqual(saved["refreshToken"], "new-refresh")
         self.assertTrue(os.path.isdir(lock_path))
+
+    def test_lock_lost_after_exchange_still_persists_rotation(self):
+        path = write(self.home, self.AUTH, self.expired())
+        lock_path = path.parent / claude.LOCK_NAME
+        real_refresh = claude.refresh_access_token
+
+        def refresh_then_lose_lock(request, refresh_token, lock=None, scopes=None):
+            fields, error = real_refresh(request, refresh_token, lock, scopes)
+            os.rmdir(lock_path)
+            os.mkdir(lock_path)
+            return fields, error
+
+        request = FakeRequest({"oauth/token": common.Response(200, {"access_token": "new-token",
+                                                                    "refresh_token": "new-refresh",
+                                                                    "expires_in": 3600}),
+                               "oauth/usage": common.Response(200, load("claude_usage.json"))})
+        with mock.patch("providers.claude.refresh_access_token", side_effect=refresh_then_lose_lock):
+            row = claude.collect(request, self.home, {})
+        self.assertEqual(row["status"], common.OK)
+        saved = json.loads(path.read_text())["claudeAiOauth"]
+        self.assertEqual(saved["accessToken"], "new-token")
+        self.assertEqual(saved["refreshToken"], "new-refresh")
+        self.assertTrue(lock_path.is_dir())
+        usage = [call for call in request.calls if "oauth/usage" in call["url"]]
+        self.assertEqual(usage[0]["headers"]["Authorization"], "Bearer new-token")
 
     def test_deadline_exceeded_no_persist(self):
         path = write(self.home, self.AUTH, self.expired())
@@ -655,7 +680,7 @@ class ClaudeLockFlowTests(ProviderCase):
         self.assertEqual(json.loads(path.read_text())["claudeAiOauth"]["refreshToken"], "new-refresh")
         self.assertEqual(multiprocessing.active_children(), [])
 
-    def test_ownership_loss_during_temp_write_aborts_replace(self):
+    def test_ownership_loss_during_temp_write_still_replaces(self):
         path = write(self.home, self.AUTH, self.expired())
         lock_path = path.parent / claude.LOCK_NAME
         successor = {"claudeAiOauth": {"accessToken": "successor", "refreshToken": "successor-refresh"}}
@@ -667,13 +692,14 @@ class ClaudeLockFlowTests(ProviderCase):
             os.mkdir(lock_path)
             path.write_text(json.dumps(successor))
 
-        request = FakeRequest({"oauth/token": common.Response(200, {"access_token": "new-token"})})
+        request = FakeRequest({"oauth/token": common.Response(200, {"access_token": "new-token"}),
+                               "oauth/usage": common.Response(200, load("claude_usage.json"))})
         with mock.patch("providers.claude.json.dump", side_effect=compromise_while_writing), \
                 mock.patch("providers.claude.os.replace", wraps=os.replace) as replace:
             row = claude.collect(request, self.home, {})
-        self.assertEqual(row["error"], "lock-lost")
-        replace.assert_not_called()
-        self.assertEqual(json.loads(path.read_text()), successor)
+        self.assertEqual(row["status"], common.OK)
+        replace.assert_called_once()
+        self.assertEqual(json.loads(path.read_text())["claudeAiOauth"]["accessToken"], "new-token")
         self.assertTrue(lock_path.is_dir())
         self.assertEqual(list(path.parent.glob(".credentials.*.tmp")), [])
 
@@ -720,7 +746,7 @@ class ClaudeLockFlowTests(ProviderCase):
     def test_persist_never_abandons_token_on_absurd_expiry(self):
         path = write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "old", "refreshToken": "r"}})
         status = claude.persist_rotation(str(path), {"accessToken": "old", "refreshToken": "r"},
-                                         {"access_token": "new", "expires_in": 1e308}, self.rotation_lock(path))
+                                         {"access_token": "new", "expires_in": 1e308})
         self.assertEqual(status, "ok")
         self.assertEqual(json.loads(path.read_text())["claudeAiOauth"]["accessToken"], "new")
 

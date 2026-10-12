@@ -307,8 +307,8 @@ the token, so run Claude Code to recover the login rather than retrying here.
 A successful rotation is written back to `~/.claude/.credentials.json`: all
 other keys are preserved, the write is a temp file in the same directory at
 mode `0600` followed by `os.replace`, and the whole `claudeAiOauth` object is
-compared, and ownership is checked immediately before replacement. Ownership
-loss returns `lock-lost` without replacing credentials. If the write fails the
+compared before replacement. Once the exchange succeeded the rotation is saved
+even if the lock was lost, since the old refresh token is already dead. If the write fails the
 row is an error (`persist-write-failed`), never `ok`. This is the only token
 this plugin ever persists; it is never logged or passed on the command line.
 An invalid refresh expiry is ignored while the rotated tokens are saved.

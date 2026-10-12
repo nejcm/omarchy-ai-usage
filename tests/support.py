@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from providers import claude, common  # noqa: E402
+from providers import common  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FUTURE_EXP = 4102444800
@@ -56,9 +56,3 @@ class ProviderCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.home = self._tmp.name
         self.addCleanup(self._tmp.cleanup)
-
-    def rotation_lock(self, path):
-        lock = claude._RefreshLock(str(path.parent / claude.LOCK_NAME))
-        self.assertTrue(lock.acquire())
-        self.addCleanup(lock.release)
-        return lock

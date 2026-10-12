@@ -347,8 +347,8 @@ def _requested_scopes(oauth: dict) -> str:
     return SCOPES
 
 
-def persist_rotation(path: str, original: dict, rotated: dict, lock: _RefreshLock) -> str:
-    """Atomically write rotated tokens only while the refresh lock is owned."""
+def persist_rotation(path: str, original: dict, rotated: dict) -> str:
+    """Atomically write rotated tokens when the credentials still match the exchange."""
     access = str(rotated.get("access_token") or "").strip()
     if not access:
         return "write-failed"
@@ -376,10 +376,7 @@ def persist_rotation(path: str, original: dict, rotated: dict, lock: _RefreshLoc
         os.fchmod(handle_fd, 0o600)
         with os.fdopen(handle_fd, "w", encoding="utf-8") as handle:
             json.dump(updated, handle)
-        with lock._mutex:
-            if not lock.still_owned():
-                return "lock-lost"
-            os.replace(tmp_path, path)
+        os.replace(tmp_path, path)
     except OSError:
         return "write-failed"
     finally:
@@ -405,11 +402,7 @@ def _refresh_locked(request, path: str, original: dict, refresh_token: str):
         fields, error = refresh_access_token(request, refresh_token, lock, _requested_scopes(original))
         if error:
             return None, error, False
-        if not lock.still_owned():
-            return None, "lock-lost", False
-        status = persist_rotation(path, original, fields, lock)
-        if status == "lock-lost":
-            return None, status, False
+        status = persist_rotation(path, original, fields)
         if status == "changed":
             current, _ = _read_oauth(path)
             if current is not None:
