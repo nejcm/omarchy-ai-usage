@@ -265,6 +265,7 @@ def _capture(func, result):
     response = None
     timed_out = False
     signal.signal(signal.SIGTERM, _interrupt_exchange)
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM})
     try:
         response = func()
     except _ExchangeTimeout:
@@ -394,6 +395,8 @@ def _refresh_locked(request, path: str, original: dict, refresh_token: str):
     lock = _RefreshLock(os.path.join(os.path.dirname(path) or ".", LOCK_NAME))
     if not lock.acquire():
         return None, "refresh-locked"
+    # SIGTERM stays pending until the rotation is persisted and the lock released.
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
     try:
         current, error = _read_oauth(path)
         if error:
@@ -416,6 +419,7 @@ def _refresh_locked(request, path: str, original: dict, refresh_token: str):
         return _apply_rotation(original, fields), None
     finally:
         lock.release()
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
 
 
 def _refresh_result(error, plan: str):

@@ -12,6 +12,7 @@ import os
 import signal
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -679,6 +680,43 @@ class ClaudeLockFlowTests(ProviderCase):
         self.assertEqual(row["status"], common.OK)
         self.assertEqual(json.loads(path.read_text())["claudeAiOauth"]["refreshToken"], "new-refresh")
         self.assertEqual(multiprocessing.active_children(), [])
+
+    def test_sigterm_during_exchange_persists_rotation(self):
+        path = write(self.home, self.AUTH, self.expired())
+        marker = Path(self.home) / "exchange-started"
+        proceed = Path(self.home) / "exchange-proceed"
+        script = """
+import json, os, sys, time
+from providers import claude, common
+
+path, marker, proceed = sys.argv[1:4]
+
+def request(method, url, hosts, headers, body=None, timeout=None, error_body=False):
+    open(marker, "w").close()
+    deadline = time.monotonic() + 5
+    while not os.path.exists(proceed) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return common.Response(200, {"access_token": "new-token",
+                                 "refresh_token": "new-refresh", "expires_in": 3600})
+
+with open(path) as handle:
+    original = json.load(handle)["claudeAiOauth"]
+claude._refresh_locked(request, path, original, "old-refresh")
+"""
+        process = subprocess.Popen([sys.executable, "-c", script, str(path), str(marker), str(proceed)],
+                                   env={**os.environ, "PYTHONPATH": str(ROOT)})
+        self.addCleanup(process.wait)
+        self.addCleanup(process.kill)
+        deadline = time.monotonic() + 10
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(marker.exists(), "exchange never started")
+        process.send_signal(signal.SIGTERM)
+        proceed.touch()
+        self.assertEqual(process.wait(timeout=10), -signal.SIGTERM)
+        saved = json.loads(path.read_text())["claudeAiOauth"]
+        self.assertEqual(saved["accessToken"], "new-token")
+        self.assertEqual(saved["refreshToken"], "new-refresh")
 
     def test_successor_write_during_temp_write_is_preserved(self):
         path = write(self.home, self.AUTH, self.expired())
