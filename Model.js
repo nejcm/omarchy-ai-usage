@@ -1,11 +1,19 @@
 .pragma library
 
-// Pure formatting and merge helpers shared by the bar widget and the panel.
+// Pure formatting, provider-selection, and merge helpers for the widget and panel.
 
 var LOGOS = { claude: "claude", codex: "chatgpt", opencode: "opencode", cursor: "cursor", grok: "grok", antigravity: "antigravity", zai: "z.ai" }
 var PROVIDERS = ["claude", "codex", "opencode", "cursor", "grok", "antigravity", "zai"]
 var NAMES = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode", cursor: "Cursor", grok: "Grok", antigravity: "Antigravity", zai: "Z.ai" }
 var REFRESH_MINUTES = [1, 2, 3, 5, 10, 15, 30, 60]
+var DEFAULT_ENABLED = ["claude", "codex"]
+
+function enabledInOrder(order, enabled) {
+  var list = Array.isArray(enabled) ? enabled : []
+  var out = []
+  for (var i = 0; i < order.length; i++) if (list.indexOf(order[i]) >= 0) out.push(order[i])
+  return out
+}
 
 function providerOrder(saved) {
   var order = []

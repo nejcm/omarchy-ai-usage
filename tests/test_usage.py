@@ -1306,6 +1306,88 @@ assert.equal(root.rows[0].status, "stale");
         subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
 
     @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_defaults_and_settings_persistence(self):
+        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        qml = (ROOT / "BarWidget.qml").read_text()
+        extracted = {}
+        for name in ("saveSetting", "toggleProviderList"):
+            start = qml.index("  function " + name + "(")
+            end = qml.index("\n  }", start) + 4
+            assert qml[start:end].endswith("\n  }")
+            extracted[name] = qml[start:end]
+        methods = "\n".join(extracted[name] for name in ("saveSetting", "toggleProviderList"))
+        script = source + """
+const assert = require("node:assert/strict");
+const MODEL = "io.github.nejcm.ai-usage";
+const Model = { DEFAULT_ENABLED: DEFAULT_ENABLED, enabledInOrder: enabledInOrder,
+  selectedProviders: selectedProviders, providerOrder: providerOrder };
+function makeHost() {
+  let disk = { id: MODEL };
+  const layout = { left: [], center: [], right: [{ id: MODEL }] };
+  let derived = { layout: JSON.parse(JSON.stringify(layout)) };
+  let exposed = { layout: JSON.parse(JSON.stringify(layout)) };
+  const instances = [];
+  return {
+    register: function(root) { instances.push(root); },
+    shell: {
+      get barConfig() { return exposed; },
+      updateEntryInline: function(id, settings) {
+        exposed = derived;
+        const entry = Object.assign({ id: id }, JSON.parse(JSON.stringify(settings)));
+        layout.right[0] = entry;
+        disk = JSON.parse(JSON.stringify(entry));
+        for (const root of instances) root.settings = JSON.parse(JSON.stringify(entry));
+        derived = { layout: JSON.parse(JSON.stringify(layout)) };
+      }
+    },
+    disk: function() { return JSON.parse(JSON.stringify(disk)); },
+    reload: function() {
+      layout.right[0] = JSON.parse(JSON.stringify(disk));
+      derived = { layout: JSON.parse(JSON.stringify(layout)) };
+      exposed = { layout: JSON.parse(JSON.stringify(layout)) };
+    }
+  };
+}
+function makeWidget(host, injected) {
+  const root = { moduleName: MODEL, settings: injected, bar: { shell: host.shell } };
+  function setting(name, fallback) {
+    const value = root.settings ? root.settings[name] : undefined;
+    return value === undefined || value === null ? fallback : value;
+  }
+""" + methods + """
+  root.setting = setting;
+  root.saveSetting = saveSetting;
+  root.toggleProviderList = toggleProviderList;
+  host.register(root);
+  return { root: root, setting: setting, saveSetting: saveSetting, toggleProviderList: toggleProviderList };
+}
+const host = makeHost();
+const a = makeWidget(host, host.disk());
+const b = makeWidget(host, host.disk());
+
+assert.deepEqual(a.setting("enabledProviders", DEFAULT_ENABLED), ["claude", "codex"]);
+a.toggleProviderList("enabledProviders", "cursor");
+assert.deepEqual(host.disk().enabledProviders, ["claude", "codex", "cursor"]);
+assert.equal(host.shell.barConfig.layout.right[0].enabledProviders, undefined);
+
+b.saveSetting("warningState", { "cursor:Cursor models": { period: "t", fired: true } });
+assert.deepEqual(host.disk().enabledProviders, ["claude", "codex", "cursor"]);
+assert.equal(host.disk().warningState["cursor:Cursor models"].fired, true);
+
+a.saveSetting("providerOrder", ["cursor", "codex", "claude", "opencode", "grok", "antigravity", "zai"]);
+a.saveSetting("refreshIntervalSec", 180);
+
+host.reload();
+const restarted = makeWidget(host, host.disk());
+assert.deepEqual(restarted.setting("enabledProviders", DEFAULT_ENABLED), ["claude", "codex", "cursor"]);
+assert.deepEqual(Model.enabledInOrder(restarted.setting("providerOrder", []), restarted.setting("enabledProviders", [])), ["cursor", "codex", "claude"]);
+assert.equal(restarted.setting("refreshIntervalSec", 300), 180);
+assert.equal(restarted.setting("warningState", {})["cursor:Cursor models"].fired, true);
+console.log("OK");
+"""
+        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_settings_and_warning_periods(self):
         source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
         script = source + """

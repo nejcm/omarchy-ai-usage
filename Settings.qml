@@ -85,7 +85,7 @@ Column {
       ProviderToggle {
         text: "Enabled"
         checked: root.hostWidget.enabledProviders.indexOf(provider.modelData) >= 0
-        onClicked: root.hostWidget.toggleProviderList("disabledProviders", provider.modelData)
+        onClicked: root.hostWidget.toggleProviderList("enabledProviders", provider.modelData)
       }
       ProviderToggle {
         text: "Show in navbar"

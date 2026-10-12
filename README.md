@@ -56,10 +56,9 @@ omarchy-shell shell rescanPlugins
 omarchy plugin enable io.github.nejcm.ai-usage --section right
 ```
 
-Sign in through the coding tools you use, then click the usage widget. All
-seven providers are enabled initially. Turn off the ones you do not use in
-settings. A provider without a usable sign-in shows `–` and an explanation in
-the panel.
+Sign in through the coding tools you use, then click the usage widget. Claude
+Code and Codex are enabled initially; turn on the others in settings. A
+provider without a usable sign-in shows `–` and an explanation in the panel.
 
 If you already have a checkout, you can symlink its absolute path into the
 same plugin directory instead of cloning it. Keep that checkout in place;
@@ -73,7 +72,7 @@ starts on usage.
 
 | Setting | Behavior | Default |
 | --- | --- | --- |
-| Enabled | Collect and display this provider | On for all providers |
+| Enabled | Collect and display this provider | On for Claude Code and Codex |
 | Show in navbar | Show this provider in the bar; keep its panel readings and notifications when hidden | On for all providers |
 | Provider order | Move up or down to reorder both the bar and panel | Claude Code, Codex, OpenCode, Cursor, Grok, Antigravity, Z.ai |
 | Refresh interval | 1, 2, 3, 5, 10, 15, 30, or 60 minutes | 5 minutes |
