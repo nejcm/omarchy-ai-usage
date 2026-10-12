@@ -15,9 +15,8 @@ when your allowance resets; the header shows how long ago the reading was
 refreshed. The panel stays within 60% of the screen height and scrolls when
 needed.
 
-![AI usage in the Omarchy bar](assets/screen-1.png)
-
-![AI usage panel with provider limits and reset times](assets/screen-2.png)
+![AI usage panel with provider limits and reset times](preview.png)
+![AI usage panel with provider limits and reset times](preview-2.png)
 
 ## User guide
 
