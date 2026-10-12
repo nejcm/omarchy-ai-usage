@@ -17,12 +17,27 @@ Column {
     resetTimer.restart()
   }
 
-  function confirmReset() {
-    resetTimer.stop()
+  function disarmReset() {
+    var focused = confirmButton.activeFocus
     root.resetArmed = false
-    root.hostWidget.resetSettings()
-    resetButton.forceActiveFocus()
+    if (focused) resetButton.forceActiveFocus()
   }
+
+  function confirmReset() {
+    if (!root.resetArmed) return
+    resetTimer.stop()
+    root.disarmReset()
+    root.hostWidget.resetSettings()
+  }
+
+  // Confirm's Keys are disabled; activations bubble here, where repeats are rejected.
+  function confirmKey(event) {
+    if (confirmButton.activeFocus && !event.isAutoRepeat) root.confirmReset()
+  }
+
+  Keys.onReturnPressed: function(event) { root.confirmKey(event) }
+  Keys.onEnterPressed: function(event) { root.confirmKey(event) }
+  Keys.onSpacePressed: function(event) { root.confirmKey(event) }
 
   component Label: Text {
     color: root.foreground
@@ -258,7 +273,9 @@ Column {
     onClicked: root.armReset()
   }
   Button {
+    id: confirmButton
     visible: root.resetArmed
+    enabled: root.resetArmed
     width: parent.width
     leftAlign: true
     text: "Confirm reset"
@@ -267,11 +284,12 @@ Column {
     foreground: Color.urgent
     fontFamily: root.fontFamily
     focusable: true
+    Keys.enabled: false
     onClicked: root.confirmReset()
   }
   Timer {
     id: resetTimer
     interval: 5000
-    onTriggered: root.resetArmed = false
+    onTriggered: root.disarmReset()
   }
 }
