@@ -17,11 +17,18 @@ USAGE_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits"
 PLAN_URL = "https://cli-chat-proxy.grok.com/v1/settings"
 WEEKLY_PERIOD = "USAGE_PERIOD_TYPE_WEEKLY"
 API_KEY_SCOPE = "xai::api_key"
+XAI_ISSUER = "https://auth.x.ai"
+LEGACY_SCOPE = "https://accounts.x.ai/sign-in"
 
 
 def credentials_path(home: str, env: dict) -> str:
     base = str(env.get("GROK_HOME") or "").strip() or os.path.join(home, ".grok")
     return os.path.join(os.path.expanduser(base), "auth.json")
+
+
+def _is_first_party(scope: str, entry: dict) -> bool:
+    return (scope.startswith(XAI_ISSUER + "::") or scope == LEGACY_SCOPE
+            or str(entry.get("oidc_issuer") or "").strip() == XAI_ISSUER)
 
 
 def read_credentials(home: str, env: dict):
@@ -32,11 +39,11 @@ def read_credentials(home: str, env: dict):
         return None, common.NOT_SIGNED_IN
     except (OSError, ValueError):
         return None, "malformed-auth"
-    # Billing needs a grok.com OAuth login; the API-key scope can never satisfy it.
+    # Billing needs a first-party xAI login; a customer OIDC session must never be sent.
     entries = []
     if isinstance(data, dict):
         for scope, entry in data.items():
-            if scope == API_KEY_SCOPE or not isinstance(entry, dict):
+            if scope == API_KEY_SCOPE or not isinstance(entry, dict) or not _is_first_party(scope, entry):
                 continue
             token = str(entry.get("key") or "").strip()
             if token:

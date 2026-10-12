@@ -41,14 +41,14 @@ def _yaml_scalar(value: str) -> str:
         quote = value[0]
         end = value.find(quote, 1)
         return value[1:end] if end > 0 else value.strip("'\"")
-    return re.split(r"(?:^|\s)#", value, 1)[0].strip()
+    return re.split(r"(?:^|\s)#", value, maxsplit=1)[0].strip()
 
 
 def _cli_key(home: str) -> str:
     try:
         with open(config_path(home), encoding="utf-8") as handle:
             text = handle.read()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return ""
     for line in text.splitlines():
         name, _, value = line.partition(":")

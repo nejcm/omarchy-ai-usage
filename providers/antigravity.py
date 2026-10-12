@@ -15,7 +15,6 @@ ABBREV = "A"
 HOSTS = ("cloudcode-pa.googleapis.com",)
 USAGE_URL = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
 
-# bucketId -> label. Fixed order: Gemini pool first, then the Claude/GPT pool.
 BUCKETS = (
     ("gemini-5h", "Session"),
     ("gemini-weekly", "Weekly"),
@@ -93,7 +92,7 @@ def parse(payload: dict) -> list:
         if entry is None:
             continue
         fraction, reset = entry
-        metric = common.metric(label, common.percent(round((1.0 - fraction) * 100.0)), reset)
+        metric = common.metric(label, common.percent((1.0 - fraction) * 100.0), reset)
         if metric:
             metrics.append(metric)
     return metrics

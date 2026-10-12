@@ -544,6 +544,32 @@ class GrokTests(ProviderCase):
         self.assertEqual(grok.collect(FakeRequest(self.routes()), self.home, env)["status"], common.OK)
 
 
+    def test_enterprise_oidc_entry_does_not_mask_personal_login(self):
+        enterprise, personal = make_jwt(FUTURE_EXP - 5), make_jwt(FUTURE_EXP)
+        write(self.home, self.AUTH, {"https://idp.acme.example::client": {"key": enterprise},
+                                     "https://auth.x.ai::client": {"key": personal}})
+        request = FakeRequest(self.routes())
+        row = grok.collect(request, self.home, {})
+        self.assertEqual(row["status"], common.OK)
+        self.assertEqual(request.calls[0]["headers"]["Authorization"], "Bearer " + personal)
+
+    def test_enterprise_oidc_only_is_not_signed_in(self):
+        write(self.home, self.AUTH, {"https://idp.acme.example::client": {"key": make_jwt(FUTURE_EXP)}})
+        request = FakeRequest(self.routes())
+        row = grok.collect(request, self.home, {})
+        self.assertEqual(row["status"], common.NOT_SIGNED_IN)
+        self.assertEqual(request.calls, [])
+
+    def test_first_party_issuer_field_is_accepted(self):
+        write(self.home, self.AUTH, {"custom::client": {"key": make_jwt(FUTURE_EXP),
+                                                        "oidc_issuer": "https://auth.x.ai"}})
+        self.assertEqual(grok.collect(FakeRequest(self.routes()), self.home, {})["status"], common.OK)
+
+    def test_legacy_accounts_scope_is_first_party(self):
+        write(self.home, self.AUTH, {"https://accounts.x.ai/sign-in": {"key": make_jwt(FUTURE_EXP)}})
+        self.assertEqual(grok.collect(FakeRequest(self.routes()), self.home, {})["status"], common.OK)
+
+
 class AntigravityTests(ProviderCase):
     AUTH = ".gemini/antigravity-cli/antigravity-oauth-token"
 
@@ -561,7 +587,8 @@ class AntigravityTests(ProviderCase):
         row = antigravity.collect(request, self.home, {})
         self.assertEqual(row["status"], common.OK)
         self.assertEqual([m["label"] for m in row["metrics"]], ["Session", "Weekly", "Claude", "Claude Weekly"])
-        self.assertEqual([m["percent"] for m in row["metrics"]], [8.0, 14.0, 0.0, 0.0])
+        for metric, expected in zip(row["metrics"], [8.0, 14.0, 0.0, 0.0]):
+            self.assertAlmostEqual(metric["percent"], expected, places=6)
         self.assertEqual(row["metrics"][0]["resetsAt"], "2026-08-23T04:25:14Z")
         self.assertEqual(request.calls[0]["method"], "POST")
         self.assertEqual(request.calls[0]["headers"]["Authorization"], "Bearer SECRET-TOKEN")
@@ -581,13 +608,19 @@ class AntigravityTests(ProviderCase):
     def test_duplicate_bucket_first_wins(self):
         payload = load("antigravity_usage.json")
         payload["groups"][1]["buckets"].append({"bucketId": "gemini-5h", "remainingFraction": 0.5})
-        self.assertEqual([m["percent"] for m in antigravity.parse(payload)][0], 8.0)
+        self.assertAlmostEqual(antigravity.parse(payload)[0]["percent"], 8.0, places=6)
 
     def test_fraction_clamped(self):
         for value, expected in ((-1, 100.0), (2, 0.0)):
             with self.subTest(value=value):
                 payload = {"groups": [{"buckets": [{"bucketId": "gemini-5h", "remainingFraction": value}]}]}
                 self.assertEqual([m["percent"] for m in antigravity.parse(payload)], [expected])
+
+    def test_fraction_keeps_precision(self):
+        payload = {"groups": [{"buckets": [{"bucketId": "gemini-5h", "remainingFraction": 0.204}]}]}
+        percent = antigravity.parse(payload)[0]["percent"]
+        self.assertAlmostEqual(percent, 79.6, places=6)
+        self.assertLess(percent, 80)
 
     def test_malformed_usage_does_not_raise(self):
         self.assertEqual(antigravity.parse({"groups": "bad"}), [])
@@ -705,6 +738,20 @@ class ZaiTests(ProviderCase):
         request = FakeRequest(self.routes())
         self.assertEqual(zai.collect(request, self.home, {})["status"], common.OK)
         self.assertEqual(request.calls[0]["headers"]["Authorization"], "Bearer SEC#RET")
+
+    def test_unreadable_config_falls_back(self):
+        path = Path(self.home) / self.AUTH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"api_key: \xff\xfe\n")
+        write(self.home, ".claude/settings.json", {"env": {
+            "ANTHROPIC_AUTH_TOKEN": "SECRET-KEY", "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic"}})
+        self.assertEqual(zai.collect(FakeRequest(self.routes()), self.home, {})["status"], common.OK)
+
+    def test_unreadable_config_without_fallback_is_not_signed_in(self):
+        path = Path(self.home) / self.AUTH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"\xff\xfe")
+        self.assertEqual(zai.collect(FakeRequest({}), self.home, {})["status"], common.NOT_SIGNED_IN)
 
     def test_keyless_cli_file_falls_back_to_claude_settings(self):
         write(self.home, self.AUTH, "lang: en_US\n")
