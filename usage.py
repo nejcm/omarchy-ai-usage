@@ -30,6 +30,7 @@ def request(method: str, url: str, hosts, headers: dict, body=None, timeout: flo
     """One allow-listed, non-redirecting HTTP call returning a bounded Response."""
     if urlsplit(url).hostname not in hosts:
         return common.Response(0, None, "host-not-allowed")
+    # urllib's default User-Agent is blocked by OpenCode's WAF.
     merged = {"User-Agent": "omarchy-ai-usage/1.0", "Accept": "application/json"}
     merged.update(headers)
     for value in merged.values():

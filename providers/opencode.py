@@ -87,10 +87,8 @@ def collect(request, home: str, env: dict) -> dict:
     if code:
         return common.error_row(PROVIDER, code)
 
-    # A browser-like User-Agent is required: Python's default is blocked by WAF.
     response = request("GET", USAGE_URL, HOSTS, {
         "Authorization": "Bearer " + credentials["key"],
-        "User-Agent": "omarchy-ai-usage/1.0",
     })
     if response.status == 403:
         return common.row(PROVIDER, common.UNAVAILABLE, error="no-subscription")
