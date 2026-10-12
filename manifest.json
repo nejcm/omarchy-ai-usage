@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.nejcm.ai-usage",
   "name": "AI usage",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": "Nejc",
   "license": "MIT",
   "description": "Subscription quota for Claude Code, Codex, OpenCode, Cursor, Grok, Antigravity, and Z.ai in an Omarchy bar panel.",
