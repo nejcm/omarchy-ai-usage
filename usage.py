@@ -71,7 +71,7 @@ def collect_all(home: str, env: dict, request_fn=request, select=None) -> list:
         try:
             rows.append(module.collect(request_fn, home, env))
         except Exception:
-            rows.append(common.error_row(module.ID, module.NAME, module.ABBREV, "internal-error"))
+            rows.append(common.error_row((module.ID, module.NAME, module.ABBREV), "internal-error"))
     return rows
 
 

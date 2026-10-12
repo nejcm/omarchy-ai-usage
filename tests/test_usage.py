@@ -4,7 +4,6 @@ fake transport; nothing here opens a socket or touches a real credential file.
 
 from __future__ import annotations
 
-import base64
 import io
 import http.client
 import json
@@ -13,7 +12,6 @@ import os
 import signal
 import shutil
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -23,65 +21,11 @@ from pathlib import Path
 from unittest import mock
 from urllib.parse import urlsplit
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
+from support import FUTURE_EXP, PAST_EXP, ROOT, FakeRequest, ProviderCase, jwt, load, make_jwt, write
 
 import usage  # noqa: E402
 from providers import claude, codex, common, cursor, opencode  # noqa: E402
 import providers as providers_pkg  # noqa: E402
-
-FIXTURES = Path(__file__).parent / "fixtures"
-FUTURE_EXP = 4102444800
-PAST_EXP = 1000000000
-
-
-def load(name):
-    return json.loads((FIXTURES / name).read_text())
-
-
-def jwt(payload):
-    raw = json.dumps(payload).encode()
-    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
-
-
-def make_jwt(exp):
-    return jwt({"alg": "none"}) + "." + jwt({"exp": exp}) + ".sig"
-
-
-class FakeRequest:
-    """Routes a request to a Response by URL substring; records calls."""
-
-    def __init__(self, routes):
-        self.routes = routes
-        self.calls = []
-
-    def __call__(self, method, url, hosts, headers, body=None, error_body=False):
-        self.calls.append({"method": method, "url": url, "hosts": tuple(hosts), "headers": dict(headers)})
-        for needle, response in self.routes.items():
-            if needle in url:
-                return response
-        return common.Response(0, None, "network")
-
-
-def write(home, relative, content):
-    path = Path(home) / relative
-    path.parent.mkdir(parents=True, exist_ok=True)
-    text = content if isinstance(content, str) else json.dumps(content)
-    path.write_text(text)
-    return path
-
-
-class ProviderCase(unittest.TestCase):
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.home = self._tmp.name
-        self.addCleanup(self._tmp.cleanup)
-
-    def rotation_lock(self, path):
-        lock = claude._RefreshLock(str(path.parent / claude.LOCK_NAME))
-        self.assertTrue(lock.acquire())
-        self.addCleanup(lock.release)
-        return lock
 
 
 class ClaudeTests(ProviderCase):
@@ -876,15 +820,115 @@ assert.equal(root.rows[0].status, "stale");
         subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
 
     @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_defaults_and_settings_persistence(self):
+        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        qml = (ROOT / "BarWidget.qml").read_text()
+        extracted = {}
+        for name in ("saveSetting", "toggleProviderList"):
+            start = qml.index("  function " + name + "(")
+            end = qml.index("\n  }", start) + 4
+            assert qml[start:end].endswith("\n  }")
+            extracted[name] = qml[start:end]
+        methods = "\n".join(extracted[name] for name in ("saveSetting", "toggleProviderList"))
+        script = source + "\nconst settingsQml = " + json.dumps((ROOT / "Settings.qml").read_text()) + ";" + """
+const assert = require("node:assert/strict");
+const MODEL = "io.github.nejcm.ai-usage";
+const Model = { DEFAULT_ENABLED: DEFAULT_ENABLED, enabledInOrder: enabledInOrder,
+  selectedProviders: selectedProviders, providerOrder: providerOrder };
+function makeHost() {
+  let disk = { id: MODEL };
+  const layout = { left: [], center: [], right: [{ id: MODEL }] };
+  let derived = { layout: JSON.parse(JSON.stringify(layout)) };
+  let exposed = { layout: JSON.parse(JSON.stringify(layout)) };
+  const instances = [];
+  return {
+    register: function(root) { instances.push(root); },
+    shell: {
+      get barConfig() { return exposed; },
+      updateEntryInline: function(id, settings) {
+        exposed = derived;
+        const entry = Object.assign({ id: id }, JSON.parse(JSON.stringify(settings)));
+        layout.right[0] = entry;
+        disk = JSON.parse(JSON.stringify(entry));
+        for (const root of instances) root.settings = JSON.parse(JSON.stringify(entry));
+        derived = { layout: JSON.parse(JSON.stringify(layout)) };
+      }
+    },
+    disk: function() { return JSON.parse(JSON.stringify(disk)); },
+    reload: function() {
+      layout.right[0] = JSON.parse(JSON.stringify(disk));
+      derived = { layout: JSON.parse(JSON.stringify(layout)) };
+      exposed = { layout: JSON.parse(JSON.stringify(layout)) };
+    }
+  };
+}
+function makeWidget(host, injected) {
+  const root = { moduleName: MODEL, settings: injected, bar: { shell: host.shell } };
+  function setting(name, fallback) {
+    const value = root.settings ? root.settings[name] : undefined;
+    return value === undefined || value === null ? fallback : value;
+  }
+""" + methods + """
+  root.setting = setting;
+  root.saveSetting = saveSetting;
+  root.toggleProviderList = toggleProviderList;
+  host.register(root);
+  return { root: root, setting: setting, saveSetting: saveSetting, toggleProviderList: toggleProviderList };
+}
+function clickToggle(widget, name, id) {
+  const line = settingsQml.split("\\n").find(line => line.includes('toggleProviderList("' + name + '"'));
+  assert(line);
+  new Function("root", "provider", "Model", line.trim().replace(/^onClicked:\\s*/, ""))(
+    {hostWidget: widget.root}, {modelData: id}, Model);
+}
+const host = makeHost();
+const a = makeWidget(host, host.disk());
+const b = makeWidget(host, host.disk());
+
+assert.deepEqual(a.setting("enabledProviders", DEFAULT_ENABLED), ["claude", "codex"]);
+clickToggle(a, "enabledProviders", "cursor");
+assert.deepEqual(host.disk().enabledProviders, ["claude", "codex", "cursor"]);
+assert.deepEqual(DEFAULT_ENABLED, ["claude", "codex"]);
+assert.equal(host.shell.barConfig.layout.right[0].enabledProviders, undefined);
+clickToggle(b, "hiddenProviders", "cursor");
+assert.deepEqual(host.disk().hiddenProviders, ["cursor"]);
+clickToggle(b, "hiddenProviders", "cursor");
+assert.deepEqual(host.disk().hiddenProviders, []);
+clickToggle(a, "enabledProviders", "cursor");
+assert.deepEqual(host.disk().enabledProviders, ["claude", "codex"]);
+clickToggle(a, "enabledProviders", "cursor");
+
+b.saveSetting("warningState", { "cursor:Cursor models": { period: "t", fired: true } });
+assert.deepEqual(host.disk().enabledProviders, ["claude", "codex", "cursor"]);
+assert.equal(host.disk().warningState["cursor:Cursor models"].fired, true);
+
+a.saveSetting("providerOrder", ["cursor", "codex", "claude", "opencode", "grok", "antigravity", "zai"]);
+a.saveSetting("refreshIntervalSec", 180);
+
+host.reload();
+const restarted = makeWidget(host, host.disk());
+assert.deepEqual(restarted.setting("enabledProviders", DEFAULT_ENABLED), ["claude", "codex", "cursor"]);
+assert.deepEqual(Model.enabledInOrder(restarted.setting("providerOrder", []), restarted.setting("enabledProviders", [])), ["cursor", "codex", "claude"]);
+assert.equal(restarted.setting("refreshIntervalSec", 300), 180);
+assert.equal(restarted.setting("warningState", {})["cursor:Cursor models"].fired, true);
+console.log("OK");
+"""
+        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_settings_and_warning_periods(self):
         source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
         script = source + """
 const assert = require("node:assert/strict");
-assert.deepEqual(providerOrder(["cursor", "bad", "cursor"]), ["cursor", "claude", "codex", "opencode"]);
+assert.deepEqual(providerOrder(["cursor", "bad", "cursor"]), ["cursor", "claude", "codex", "opencode", "grok", "antigravity", "zai"]);
 assert.deepEqual(providerOrder(null), PROVIDERS);
-assert.deepEqual(selectedProviders(PROVIDERS, ["claude"], ["cursor"]), ["codex", "opencode"]);
+assert.deepEqual(selectedProviders(PROVIDERS, ["claude", "cursor"]), ["codex", "opencode", "grok", "antigravity", "zai"]);
 assert.deepEqual(selectedProviders(PROVIDERS, PROVIDERS), []);
-assert.deepEqual(selectedProviders(PROVIDERS, {}, {}), PROVIDERS);
+assert.deepEqual(selectedProviders(PROVIDERS, {}), PROVIDERS);
+assert.deepEqual(selectedProviders(PROVIDERS, null), PROVIDERS);
+assert.deepEqual(enabledInOrder(["cursor", "codex", "claude"], ["claude", "cursor"]), ["cursor", "claude"]);
+assert.deepEqual(enabledInOrder(PROVIDERS, PROVIDERS), PROVIDERS);
+for (const value of [[], {}, null]) assert.deepEqual(enabledInOrder(PROVIDERS, value), []);
 const rows = PROVIDERS.map(provider => ({provider, status:"ok", metrics:[{percent:70.4}]}));
 assert.deepEqual(orderedRows(rows, ["cursor", "claude"]).map(row => row.provider), ["cursor", "claude"]);
 assert.equal(barValue(rows[0], "remaining"), "30%");
@@ -977,6 +1021,67 @@ for (const [value, color] of [[0,"#4ade80"], [75,"#4ade80"],
         self.assertEqual(common.reset_iso(""), "")
         self.assertEqual(common.reset_iso("garbage"), "")
 
+    def test_number(self):
+        for value in (None, True, False, "bad", "", [], {}, "NaN", "Infinity", "-Infinity", float("nan"), float("inf")):
+            with self.subTest(value=value):
+                self.assertIsNone(common.number(value))
+        for value, expected in ((0, 0.0), (-1.5, -1.5), (" 42.5 ", 42.5), (1e308, 1e308)):
+            with self.subTest(value=value):
+                self.assertEqual(common.number(value), expected)
+
+    def test_parse_time(self):
+        expected = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        for value in (1767225600, 1767225600000, "1767225600", "1767225600000",
+                      "2026-01-01T00:00:00Z", "2026-01-01T00:00:00", "2026-01-01T02:00:00+02:00"):
+            with self.subTest(value=value):
+                self.assertEqual(common.parse_time(value), expected)
+                self.assertEqual(common.reset_iso(value), "2026-01-01T00:00:00Z")
+        for value in (None, "", "bad", True, False, float("nan"), float("inf"), 1e308):
+            with self.subTest(value=value):
+                self.assertIsNone(common.parse_time(value))
+                self.assertEqual(common.reset_iso(value), "")
+
+    def test_finish_row_shape(self):
+        for metrics, status, error in (([], common.UNAVAILABLE, "no-data"),
+                                       ([common.metric("Session", 42.0, "2030-01-01T00:00:00Z")], common.OK, "")):
+            with self.subTest(status=status), mock.patch.object(common, "now_iso", return_value="stamp"):
+                self.assertEqual(common.finish(claude.PROVIDER, metrics, "Max"), {
+                    "provider": "claude", "name": "Claude Code", "abbrev": "C", "plan": "Max",
+                    "status": status, "error": error, "metrics": metrics,
+                    "resetAt": "2030-01-01T00:00:00Z" if metrics else "", "refreshedAt": "stamp",
+                })
+
+    def test_claude_config_paths_keep_whitespace_behavior(self):
+        for override, claude_dir, zai_dir in ((None, "/home/test/.claude", "/home/test/.claude"),
+                                              ("", "/home/test/.claude", "/home/test/.claude"),
+                                              ("   ", "   ", "/home/test/.claude"),
+                                              (" /custom ", " /custom ", "/custom"),
+                                              ("/custom", "/custom", "/custom")):
+            with self.subTest(override=override):
+                self.assertEqual(claude.credentials_path("/home/test", {"CLAUDE_CONFIG_DIR": override}),
+                                 claude_dir + "/.credentials.json")
+                self.assertEqual(providers_pkg.zai.claude_settings_path("/home/test", {"CLAUDE_CONFIG_DIR": override}),
+                                 zai_dir + "/settings.json")
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_provider_names_and_logos(self):
+        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        script = source + """
+const assert = require("node:assert/strict");
+assert.deepEqual(PROVIDERS, ["claude", "codex", "opencode", "cursor", "grok", "antigravity", "zai"]);
+assert.deepEqual(PROVIDERS.map(id => PROVIDER_INFO[id].name),
+  ["Claude Code", "Codex", "OpenCode", "Cursor", "Grok", "Antigravity", "Z.ai"]);
+assert.deepEqual(PROVIDERS.map(id => logo(id, false)),
+  ["claude.svg", "chatgpt.svg", "opencode.svg", "cursor.svg", "grok.svg", "antigravity.svg", "z.ai.svg"]);
+assert.deepEqual(PROVIDERS.map(id => logo(id, true)),
+  ["claude.white.svg", "chatgpt.white.svg", "opencode.white.svg", "cursor.white.svg", "grok.white.svg", "antigravity.white.svg", "z.ai.white.svg"]);
+assert.deepEqual(PROVIDERS.map(panelLogo),
+  ["claude.svg", "chatgpt.white.svg", "opencode.svg", "cursor.white.svg", "grok.white.svg", "antigravity.svg", "z.ai.white.svg"]);
+assert.equal(logo("unknown", true), "");
+assert.equal(panelLogo("unknown"), "");
+"""
+        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+
     def test_jwt_exp_and_non_dict_payload(self):
         self.assertEqual(common.jwt_exp(make_jwt(FUTURE_EXP)), FUTURE_EXP)
         self.assertIsNone(common.jwt_exp("not-a-jwt"))
@@ -1025,12 +1130,20 @@ console.log(JSON.stringify({rows:rows, marked:markStale(rows)}));
             write(home, ".codex/auth.json", {"tokens": {"access_token": make_jwt(FUTURE_EXP)}})
             write(home, ".local/share/opencode/auth.json", {"opencode-go": {"key": "k"}})
             write(home, ".config/cursor/auth.json", {"accessToken": make_jwt(FUTURE_EXP)})
+            write(home, ".grok/auth.json", {"https://auth.x.ai::client": {"key": make_jwt(FUTURE_EXP)}})
+            write(home, ".gemini/antigravity-cli/antigravity-oauth-token",
+                  {"token": {"access_token": "t", "expiry": "2030-01-01T00:00:00Z"}, "auth_method": "consumer"})
+            write(home, ".chelper/config.yaml", "api_key: SECRET-KEY\n")
             routes = {
                 "api.anthropic.com": common.Response(200, load("claude_usage.json")),
                 "chatgpt.com": common.Response(200, load("codex_usage.json")),
                 "opencode.ai": common.Response(200, load("opencode_usage.json")),
                 "GetCurrentPeriodUsage": common.Response(200, load("cursor_usage.json")),
                 "GetPlanInfo": common.Response(200, load("cursor_plan.json")),
+                "billing?format=credits": common.Response(200, load("grok_usage.json")),
+                "settings": common.Response(200, {"subscription_tier_display": "SuperGrok Heavy"}),
+                "cloudcode-pa.googleapis.com": common.Response(200, load("antigravity_usage.json")),
+                "api.z.ai": common.Response(200, load("zai_quota.json")),
             }
 
             def router(method, url, hosts, headers, body=None, error_body=False):
@@ -1038,7 +1151,7 @@ console.log(JSON.stringify({rows:rows, marked:markStale(rows)}));
                 return routes.get(host) or routes.get(url.rsplit("/", 1)[-1]) or common.Response(0, None, "network")
 
             rows = usage.collect_all(home, {}, router)
-            self.assertEqual([r["provider"] for r in rows], ["claude", "codex", "opencode", "cursor"])
+            self.assertEqual([r["provider"] for r in rows], ["claude", "codex", "opencode", "cursor", "grok", "antigravity", "zai"])
             self.assertTrue(all(r["status"] == common.OK for r in rows))
             json.dumps({"providers": rows})
 

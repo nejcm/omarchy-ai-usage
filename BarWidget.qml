@@ -14,15 +14,14 @@ BarWidget {
   property string refreshedAt: ""
   property bool refreshing: false
   property bool loadedOnce: false
-  property var warningState: setting("warningState", {})
   property double lastAttemptMs: 0
   property bool refreshPending: false
 
   readonly property var providerOrder: Model.providerOrder(setting("providerOrder", []))
-  readonly property var enabledProviders: Model.selectedProviders(providerOrder, setting("disabledProviders", []))
-  readonly property string selectionKey: Model.selectedProviders(Model.PROVIDERS, setting("disabledProviders", [])).join(",")
+  readonly property var enabledProviders: Model.enabledInOrder(providerOrder, setting("enabledProviders", Model.DEFAULT_ENABLED))
+  readonly property string selectionKey: enabledProviders.join(",")
   readonly property var displayRows: Model.orderedRows(rows, enabledProviders)
-  readonly property var navbarRows: Model.orderedRows(rows, Model.selectedProviders(providerOrder, setting("disabledProviders", []), setting("hiddenProviders", [])))
+  readonly property var navbarRows: Model.orderedRows(rows, Model.selectedProviders(enabledProviders, setting("hiddenProviders", [])))
   readonly property string displayMode: setting("displayMode", "used")
   readonly property bool colorWarnings: setting("colorWarnings", true) === true
   readonly property bool desktopNotifications: setting("desktopNotifications", false) === true
@@ -38,13 +37,12 @@ BarWidget {
     if (root.bar && root.bar.shell) root.bar.shell.updateEntryInline(root.moduleName, next)
   }
 
-  function toggleProviderList(name, id) {
-    var list = setting(name, [])
-    var next = Array.isArray(list) ? list.slice() : []
-    var index = next.indexOf(id)
-    if (index < 0) next.push(id)
-    else next.splice(index, 1)
-    saveSetting(name, next)
+  function toggleProviderList(name, id, list) {
+    list = Array.isArray(list) ? list.slice() : []
+    var index = list.indexOf(id)
+    if (index < 0) list.push(id)
+    else list.splice(index, 1)
+    saveSetting(name, list)
   }
 
   function moveProvider(id, direction) {
@@ -58,8 +56,8 @@ BarWidget {
   }
 
   function checkWarnings(incoming) {
-    var result = Model.warningEvents(incoming, warningState, warningThreshold, desktopNotifications)
-    warningState = result.state
+    var result = Model.warningEvents(incoming, setting("warningState", {}), warningThreshold, desktopNotifications)
+    saveSetting("warningState", result.state)
     for (var i = 0; i < result.events.length; i++) {
       var event = result.events[i]
       Quickshell.execDetached(["omarchy-notification-send", "AI usage: " + event.name,

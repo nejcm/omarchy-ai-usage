@@ -117,6 +117,15 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(4)
             PanelActionButton {
+              iconText: "󰑐"
+              tooltipText: "Refresh now"
+              visible: !root.settingsOpen
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              focusable: true
+              onClicked: if (root.hostWidget && root.hostWidget.refresh) root.hostWidget.refresh()
+            }
+            PanelActionButton {
               id: backButton
               iconText: root.settingsOpen ? "←" : "󰒓"
               tooltipText: root.settingsOpen ? "Back to usage" : "Settings"
@@ -128,6 +137,8 @@ Panel {
             PanelActionButton {
               iconText: "×"
               tooltipText: "Close"
+              fontSize: Style.font.icon + 3
+              size: Math.max(Style.space(22), Style.font.icon + Style.spacing.sm * 2)
               foreground: root.contentForeground
               fontFamily: root.contentFontFamily
               focusable: true
@@ -206,7 +217,7 @@ Panel {
                     height: width
                     fillMode: Image.PreserveAspectFit
                     sourceSize: Qt.size(-1, height * 2)
-                    source: Qt.resolvedUrl("assets/" + Model.logo(card.modelData.provider, card.modelData.provider === "codex" || card.modelData.provider === "cursor"))
+                    source: Qt.resolvedUrl("assets/" + Model.panelLogo(card.modelData.provider))
                   }
 
                   Text {

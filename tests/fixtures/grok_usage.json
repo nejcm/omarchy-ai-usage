@@ -1,0 +1,13 @@
+{
+  "config": {
+    "creditUsagePercent": 42.0,
+    "currentPeriod": {
+      "type": "USAGE_PERIOD_TYPE_WEEKLY",
+      "start": "2026-06-30T21:36:52Z",
+      "end": "2026-07-07T21:36:52Z"
+    },
+    "onDemandCap": {"val": 2500},
+    "onDemandUsed": {"val": 500},
+    "isUnifiedBillingUser": true
+  }
+}
