@@ -11,6 +11,8 @@ Column {
   property bool resetArmed: false
   spacing: Style.space(12)
 
+  onVisibleChanged: if (!visible) root.disarmReset()
+
   function armReset() {
     if (root.resetArmed) return
     root.resetArmed = true
@@ -19,13 +21,14 @@ Column {
 
   function disarmReset() {
     var focused = confirmButton.activeFocus
+    resetTimer.stop()
     root.resetArmed = false
-    if (focused) resetButton.forceActiveFocus()
+    if (!root.visible) confirmButton.focus = false
+    else if (focused) resetButton.forceActiveFocus()
   }
 
   function confirmReset() {
     if (!root.resetArmed) return
-    resetTimer.stop()
     root.disarmReset()
     root.hostWidget.resetSettings()
   }

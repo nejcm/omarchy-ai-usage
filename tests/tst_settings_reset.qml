@@ -79,6 +79,8 @@ Item {
     }
 
     function init() {
+      loader.visible = true
+      settings().visible = true
       resetTimer().stop()
       resetTimer().interval = 5000
       settings().resetArmed = false
@@ -135,6 +137,31 @@ Item {
       mouseClick(confirmButton())
       compare(host.resetCalls, 1)
       compare(settings().resetArmed, false)
+    }
+
+    function test_hiding_disarms_data() {
+      return [{ tag: "settings", parent: false }, { tag: "parent", parent: true }]
+    }
+
+    function test_hiding_disarms(data) {
+      mouseClick(resetButton())
+      waitForRendering(confirmButton())
+      confirmButton().forceActiveFocus()
+      compare(confirmButton().activeFocus, true)
+      if (data.parent) loader.visible = false
+      else settings().visible = false
+      compare(settings().resetArmed, false)
+      compare(resetTimer().running, false)
+      compare(confirmButton().focus, false)
+      compare(confirmButton().activeFocus, false)
+      keyClick(Qt.Key_Return)
+      compare(host.resetCalls, 0)
+      loader.visible = true
+      settings().visible = true
+      compare(settings().resetArmed, false)
+      compare(confirmButton().activeFocus, false)
+      keyClick(Qt.Key_Return)
+      compare(host.resetCalls, 0)
     }
 
     function test_expiry_disarms_and_moves_focus() {

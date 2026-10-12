@@ -970,64 +970,6 @@ console.log("OK");
         subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
 
     @unittest.skipUnless(shutil.which("node"), "node not installed")
-    def test_reset_requires_explicit_confirm(self):
-        qml = (ROOT / "Settings.qml").read_text()
-        functions = {}
-        for name in ("armReset", "disarmReset", "confirmReset"):
-            start = qml.index("  function " + name + "(")
-            end = qml.index("\n  }", start) + 4
-            assert qml[start:end].endswith("\n  }")
-            functions[name] = qml[start:end]
-        assert "onClicked: root.armReset()" in qml
-        assert "onClicked: root.confirmReset()" in qml
-        assert "enabled: root.resetArmed" in qml
-        assert "Keys.enabled: false" in qml
-        script = """
-const assert = require("node:assert/strict");
-function load(source, name, scope) {
-  const keys = Object.keys(scope);
-  return new Function(...keys, source + "; return " + name)(...keys.map(key => scope[key]));
-}
-const host = { resetCalls: 0, resetSettings: function() { this.resetCalls += 1; } };
-const root = { resetArmed: false, hostWidget: host };
-const timer = { restarts: 0, stops: 0, restart: function() { this.restarts += 1; }, stop: function() { this.stops += 1; } };
-const confirmButton = { activeFocus: false };
-const resetButton = { focuses: 0, forceActiveFocus: function() { this.focuses += 1; } };
-const scope = { root: root, resetTimer: timer, confirmButton: confirmButton, resetButton: resetButton };
-const armReset = load(""" + json.dumps(functions["armReset"]) + """, "armReset", scope);
-const disarmReset = load(""" + json.dumps(functions["disarmReset"]) + """, "disarmReset", scope);
-const confirmReset = load(""" + json.dumps(functions["confirmReset"]) + """, "confirmReset", scope);
-root.disarmReset = disarmReset;
-confirmReset();
-assert.equal(host.resetCalls, 0);
-for (let i = 0; i < 20; i++) armReset();
-assert.equal(root.resetArmed, true);
-assert.equal(timer.restarts, 1);
-assert.equal(host.resetCalls, 0);
-disarmReset();
-assert.equal(root.resetArmed, false);
-assert.equal(resetButton.focuses, 0);
-confirmReset();
-assert.equal(host.resetCalls, 0);
-armReset();
-confirmButton.activeFocus = true;
-confirmReset();
-assert.equal(root.resetArmed, false);
-assert.equal(timer.stops, 1);
-assert.equal(host.resetCalls, 1);
-assert.equal(resetButton.focuses, 1);
-confirmReset();
-assert.equal(host.resetCalls, 1);
-confirmButton.activeFocus = false;
-armReset();
-disarmReset();
-assert.equal(root.resetArmed, false);
-assert.equal(resetButton.focuses, 1);
-console.log("OK");
-"""
-        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
-
-    @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_model_reset_and_reorder(self):
         source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
         script = source + """
