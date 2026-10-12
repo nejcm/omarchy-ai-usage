@@ -17,24 +17,32 @@ BarWidget {
   property double lastAttemptMs: 0
   property bool refreshPending: false
 
-  readonly property var providerOrder: Model.providerOrder(setting("providerOrder", []))
-  readonly property var enabledProviders: Model.enabledInOrder(providerOrder, setting("enabledProviders", Model.DEFAULT_ENABLED))
+  readonly property var providerOrder: Model.providerOrder(setting("providerOrder", Model.SETTING_DEFAULTS.providerOrder))
+  readonly property var enabledProviders: Model.enabledInOrder(providerOrder, setting("enabledProviders", Model.SETTING_DEFAULTS.enabledProviders))
   readonly property string selectionKey: enabledProviders.join(",")
   readonly property var displayRows: Model.orderedRows(rows, enabledProviders)
-  readonly property var navbarRows: Model.orderedRows(rows, Model.selectedProviders(enabledProviders, setting("hiddenProviders", [])))
-  readonly property string displayMode: setting("displayMode", "used")
-  readonly property bool colorWarnings: setting("colorWarnings", true) === true
-  readonly property bool desktopNotifications: setting("desktopNotifications", false) === true
-  readonly property int warningThreshold: Model.warningThreshold(setting("warningThreshold", 80))
-  readonly property int refreshMs: Model.refreshSeconds(setting("refreshIntervalSec", 300)) * 1000
+  readonly property var navbarRows: Model.orderedRows(rows, Model.selectedProviders(enabledProviders, setting("hiddenProviders", Model.SETTING_DEFAULTS.hiddenProviders)))
+  readonly property string displayMode: setting("displayMode", Model.SETTING_DEFAULTS.displayMode)
+  readonly property bool colorWarnings: setting("colorWarnings", Model.SETTING_DEFAULTS.colorWarnings) === true
+  readonly property bool desktopNotifications: setting("desktopNotifications", Model.SETTING_DEFAULTS.desktopNotifications) === true
+  readonly property int warningThreshold: Model.warningThreshold(setting("warningThreshold", Model.SETTING_DEFAULTS.warningThreshold))
+  readonly property int refreshMs: Model.refreshSeconds(setting("refreshIntervalSec", Model.SETTING_DEFAULTS.refreshIntervalSec)) * 1000
   readonly property string script: Qt.resolvedUrl("usage.py").toString().replace("file://", "")
+
+  function writeSettings(next) {
+    if (JSON.stringify(next) === JSON.stringify(root.settings)) return
+    root.settings = next
+    if (root.bar && root.bar.shell) root.bar.shell.updateEntryInline(root.moduleName, next)
+  }
 
   function saveSetting(name, value) {
     var next = Object.assign({}, root.settings)
     next[name] = value
-    if (JSON.stringify(next) === JSON.stringify(root.settings)) return
-    root.settings = next
-    if (root.bar && root.bar.shell) root.bar.shell.updateEntryInline(root.moduleName, next)
+    writeSettings(next)
+  }
+
+  function resetSettings() {
+    writeSettings(Model.resetSettings(root.settings))
   }
 
   function toggleProviderList(name, id, list) {
@@ -46,13 +54,11 @@ BarWidget {
   }
 
   function moveProvider(id, direction) {
-    var next = providerOrder.slice()
-    var index = next.indexOf(id)
-    var target = index + direction
-    if (index < 0 || target < 0 || target >= next.length) return
-    next.splice(index, 1)
-    next.splice(target, 0, id)
-    saveSetting("providerOrder", next)
+    saveSetting("providerOrder", Model.moveItem(providerOrder, id, providerOrder.indexOf(id) + direction))
+  }
+
+  function moveProviderToTop(id) {
+    saveSetting("providerOrder", Model.moveItem(providerOrder, id, 0))
   }
 
   function checkWarnings(incoming) {

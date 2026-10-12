@@ -8,7 +8,36 @@ Column {
   required property var hostWidget
   property color foreground: Color.foreground
   property string fontFamily: Style.font.family
+  property bool resetArmed: false
   spacing: Style.space(12)
+
+  function armReset() {
+    if (root.resetArmed) return
+    root.resetArmed = true
+    resetTimer.restart()
+  }
+
+  function disarmReset() {
+    var focused = confirmButton.activeFocus
+    root.resetArmed = false
+    if (focused) resetButton.forceActiveFocus()
+  }
+
+  function confirmReset() {
+    if (!root.resetArmed) return
+    resetTimer.stop()
+    root.disarmReset()
+    root.hostWidget.resetSettings()
+  }
+
+  // Confirm's Keys are disabled; activations bubble here, where repeats are rejected.
+  function confirmKey(event) {
+    if (confirmButton.activeFocus && !event.isAutoRepeat) root.confirmReset()
+  }
+
+  Keys.onReturnPressed: function(event) { root.confirmKey(event) }
+  Keys.onEnterPressed: function(event) { root.confirmKey(event) }
+  Keys.onSpacePressed: function(event) { root.confirmKey(event) }
 
   component Label: Text {
     color: root.foreground
@@ -65,10 +94,19 @@ Column {
         width: parent.width
         spacing: Style.space(4)
         Label {
-          width: parent.width - up.implicitWidth - down.implicitWidth - parent.spacing * 2
+          width: parent.width - toTop.implicitWidth - up.implicitWidth - down.implicitWidth - parent.spacing * 3
           text: Model.PROVIDER_INFO[provider.modelData].name
           anchors.verticalCenter: parent.verticalCenter
           font.bold: true
+        }
+        PanelActionButton {
+          id: toTop
+          iconText: "⇑"
+          tooltipText: "Move " + Model.PROVIDER_INFO[provider.modelData].name + " to top"
+          foreground: root.foreground
+          focusable: true
+          enabled: provider.index > 0
+          onClicked: root.hostWidget.moveProviderToTop(provider.modelData)
         }
         PanelActionButton {
           id: up
@@ -101,14 +139,14 @@ Column {
       ProviderToggle {
         text: "Enabled"
         checked: root.hostWidget.enabledProviders.indexOf(provider.modelData) >= 0
-        onClicked: root.hostWidget.toggleProviderList("enabledProviders", provider.modelData, root.hostWidget.setting("enabledProviders", Model.DEFAULT_ENABLED))
+        onClicked: root.hostWidget.toggleProviderList("enabledProviders", provider.modelData, root.hostWidget.setting("enabledProviders", Model.SETTING_DEFAULTS.enabledProviders))
       }
       ProviderToggle {
         text: "Show in navbar"
         enabled: root.hostWidget.enabledProviders.indexOf(provider.modelData) >= 0
         opacity: enabled ? 1 : 0.45
-        checked: root.hostWidget.setting("hiddenProviders", []).indexOf(provider.modelData) < 0
-        onClicked: root.hostWidget.toggleProviderList("hiddenProviders", provider.modelData, root.hostWidget.setting("hiddenProviders", []))
+        checked: root.hostWidget.setting("hiddenProviders", Model.SETTING_DEFAULTS.hiddenProviders).indexOf(provider.modelData) < 0
+        onClicked: root.hostWidget.toggleProviderList("hiddenProviders", provider.modelData, root.hostWidget.setting("hiddenProviders", Model.SETTING_DEFAULTS.hiddenProviders))
       }
     }
   }
@@ -218,5 +256,40 @@ Column {
     fontFamily: root.fontFamily
     focusable: true
     onClicked: Qt.openUrlExternally(Model.TROUBLESHOOTING_URL)
+  }
+
+  PanelSeparator {
+    foreground: root.foreground
+  }
+  Button {
+    id: resetButton
+    width: parent.width
+    leftAlign: true
+    text: "Reset to defaults"
+    tooltipText: "Restore provider enablement, order, and preferences"
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+    focusable: true
+    onClicked: root.armReset()
+  }
+  Button {
+    id: confirmButton
+    visible: root.resetArmed
+    enabled: root.resetArmed
+    width: parent.width
+    leftAlign: true
+    text: "Confirm reset"
+    tooltipText: "Restore all settings to their defaults"
+    selected: true
+    foreground: Color.urgent
+    fontFamily: root.fontFamily
+    focusable: true
+    Keys.enabled: false
+    onClicked: root.confirmReset()
+  }
+  Timer {
+    id: resetTimer
+    interval: 5000
+    onTriggered: root.disarmReset()
   }
 }

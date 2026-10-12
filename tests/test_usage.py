@@ -786,6 +786,17 @@ class SharedTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    @unittest.skipUnless(Path("/usr/lib/qt6/bin/qmltestrunner").exists(), "Qt 6 QML test runner not installed")
+    def test_qml_settings_reset_flow(self):
+        result = subprocess.run(
+            ["/usr/lib/qt6/bin/qmltestrunner", "-import", str(ROOT / "tests/qml-stubs"),
+             "-input", str(ROOT / "tests/tst_settings_reset.qml"), "-o", "-,txt"],
+            env={**os.environ, "QT_QPA_PLATFORM": "offscreen", "QT_QPA_PLATFORMTHEME": "",
+                 "QT_QUICK_BACKEND": "software", "QT_LOGGING_TO_CONSOLE": "1"},
+            capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_widget_collection_selection_and_late_output(self):
         source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
@@ -834,16 +845,17 @@ assert.equal(root.rows[0].status, "stale");
         source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
         qml = (ROOT / "BarWidget.qml").read_text()
         extracted = {}
-        for name in ("saveSetting", "toggleProviderList"):
+        for name in ("writeSettings", "saveSetting", "resetSettings", "toggleProviderList"):
             start = qml.index("  function " + name + "(")
             end = qml.index("\n  }", start) + 4
             assert qml[start:end].endswith("\n  }")
             extracted[name] = qml[start:end]
-        methods = "\n".join(extracted[name] for name in ("saveSetting", "toggleProviderList"))
+        methods = "\n".join(extracted[name] for name in ("writeSettings", "saveSetting", "resetSettings", "toggleProviderList"))
         script = source + "\nconst settingsQml = " + json.dumps((ROOT / "Settings.qml").read_text()) + ";" + """
 const assert = require("node:assert/strict");
 const MODEL = "io.github.nejcm.ai-usage";
-const Model = { DEFAULT_ENABLED: DEFAULT_ENABLED, enabledInOrder: enabledInOrder,
+const Model = { DEFAULT_ENABLED: DEFAULT_ENABLED, SETTING_DEFAULTS: SETTING_DEFAULTS,
+  resetSettings: resetSettings, enabledInOrder: enabledInOrder,
   selectedProviders: selectedProviders, providerOrder: providerOrder, providerList: providerList };
 function makeHost() {
   let disk = { id: MODEL };
@@ -881,9 +893,10 @@ function makeWidget(host, injected) {
 """ + methods + """
   root.setting = setting;
   root.saveSetting = saveSetting;
+  root.resetSettings = resetSettings;
   root.toggleProviderList = toggleProviderList;
   host.register(root);
-  return { root: root, setting: setting, saveSetting: saveSetting, toggleProviderList: toggleProviderList };
+  return { root: root, setting: setting, saveSetting: saveSetting, resetSettings: resetSettings, toggleProviderList: toggleProviderList };
 }
 function clickToggle(widget, name, id) {
   const line = settingsQml.split("\\n").find(line => line.includes('toggleProviderList("' + name + '"'));
@@ -924,6 +937,131 @@ assert.equal(restarted.setting("warningState", {})["cursor:Cursor models"].fired
 restarted.root.settings.enabledProviders = {0: "claude", 1: "codex", length: 2};
 clickToggle(restarted, "enabledProviders", "cursor");
 assert.deepEqual(host.disk().enabledProviders, ["claude", "codex", "cursor"]);
+
+restarted.saveSetting("displayMode", "both");
+restarted.saveSetting("warningThreshold", 60);
+restarted.saveSetting("colorWarnings", false);
+assert.equal(host.disk().displayMode, "both");
+assert.equal(host.disk().colorWarnings, false);
+
+restarted.resetSettings();
+const resetDisk = host.disk();
+assert.deepEqual(resetDisk.providerOrder, SETTING_DEFAULTS.providerOrder);
+assert.deepEqual(resetDisk.enabledProviders, SETTING_DEFAULTS.enabledProviders);
+assert.deepEqual(resetDisk.hiddenProviders, SETTING_DEFAULTS.hiddenProviders);
+assert.equal(resetDisk.refreshIntervalSec, SETTING_DEFAULTS.refreshIntervalSec);
+assert.equal(resetDisk.displayMode, SETTING_DEFAULTS.displayMode);
+assert.equal(resetDisk.warningThreshold, SETTING_DEFAULTS.warningThreshold);
+assert.equal(resetDisk.colorWarnings, SETTING_DEFAULTS.colorWarnings);
+assert.equal(resetDisk.desktopNotifications, SETTING_DEFAULTS.desktopNotifications);
+assert.equal(resetDisk.warningState["cursor:Cursor models"].fired, true);
+
+host.reload();
+const resetWidget = makeWidget(host, host.disk());
+assert.deepEqual(resetWidget.setting("enabledProviders", SETTING_DEFAULTS.enabledProviders), DEFAULT_ENABLED);
+assert.deepEqual(Model.providerOrder(resetWidget.setting("providerOrder", SETTING_DEFAULTS.providerOrder)), PROVIDERS);
+assert.equal(resetWidget.setting("refreshIntervalSec", SETTING_DEFAULTS.refreshIntervalSec), 300);
+assert.equal(resetWidget.setting("displayMode", SETTING_DEFAULTS.displayMode), "used");
+assert.equal(resetWidget.setting("warningThreshold", SETTING_DEFAULTS.warningThreshold), 80);
+assert.equal(resetWidget.setting("colorWarnings", SETTING_DEFAULTS.colorWarnings), true);
+assert.equal(resetWidget.setting("desktopNotifications", SETTING_DEFAULTS.desktopNotifications), false);
+console.log("OK");
+"""
+        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_reset_requires_explicit_confirm(self):
+        qml = (ROOT / "Settings.qml").read_text()
+        functions = {}
+        for name in ("armReset", "disarmReset", "confirmReset"):
+            start = qml.index("  function " + name + "(")
+            end = qml.index("\n  }", start) + 4
+            assert qml[start:end].endswith("\n  }")
+            functions[name] = qml[start:end]
+        assert "onClicked: root.armReset()" in qml
+        assert "onClicked: root.confirmReset()" in qml
+        assert "enabled: root.resetArmed" in qml
+        assert "Keys.enabled: false" in qml
+        script = """
+const assert = require("node:assert/strict");
+function load(source, name, scope) {
+  const keys = Object.keys(scope);
+  return new Function(...keys, source + "; return " + name)(...keys.map(key => scope[key]));
+}
+const host = { resetCalls: 0, resetSettings: function() { this.resetCalls += 1; } };
+const root = { resetArmed: false, hostWidget: host };
+const timer = { restarts: 0, stops: 0, restart: function() { this.restarts += 1; }, stop: function() { this.stops += 1; } };
+const confirmButton = { activeFocus: false };
+const resetButton = { focuses: 0, forceActiveFocus: function() { this.focuses += 1; } };
+const scope = { root: root, resetTimer: timer, confirmButton: confirmButton, resetButton: resetButton };
+const armReset = load(""" + json.dumps(functions["armReset"]) + """, "armReset", scope);
+const disarmReset = load(""" + json.dumps(functions["disarmReset"]) + """, "disarmReset", scope);
+const confirmReset = load(""" + json.dumps(functions["confirmReset"]) + """, "confirmReset", scope);
+root.disarmReset = disarmReset;
+confirmReset();
+assert.equal(host.resetCalls, 0);
+for (let i = 0; i < 20; i++) armReset();
+assert.equal(root.resetArmed, true);
+assert.equal(timer.restarts, 1);
+assert.equal(host.resetCalls, 0);
+disarmReset();
+assert.equal(root.resetArmed, false);
+assert.equal(resetButton.focuses, 0);
+confirmReset();
+assert.equal(host.resetCalls, 0);
+armReset();
+confirmButton.activeFocus = true;
+confirmReset();
+assert.equal(root.resetArmed, false);
+assert.equal(timer.stops, 1);
+assert.equal(host.resetCalls, 1);
+assert.equal(resetButton.focuses, 1);
+confirmReset();
+assert.equal(host.resetCalls, 1);
+confirmButton.activeFocus = false;
+armReset();
+disarmReset();
+assert.equal(root.resetArmed, false);
+assert.equal(resetButton.focuses, 1);
+console.log("OK");
+"""
+        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_model_reset_and_reorder(self):
+        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        script = source + """
+const assert = require("node:assert/strict");
+const saved = {enabledProviders: ["claude", "codex"], providerOrder: ["cursor", "codex", "claude"],
+  hiddenProviders: ["codex"], refreshIntervalSec: 180, displayMode: "both", warningThreshold: 50,
+  colorWarnings: false, desktopNotifications: true,
+  warningState: {"claude:Session": {period: "t", fired: true}}};
+const reset = resetSettings(saved);
+assert.deepEqual(reset.providerOrder, []);
+assert.deepEqual(reset.enabledProviders, DEFAULT_ENABLED);
+assert.deepEqual(reset.hiddenProviders, []);
+assert.equal(reset.refreshIntervalSec, 300);
+assert.equal(reset.displayMode, "used");
+assert.equal(reset.warningThreshold, 80);
+assert.equal(reset.colorWarnings, true);
+assert.equal(reset.desktopNotifications, false);
+assert.deepEqual(reset.warningState, saved.warningState);
+assert.deepEqual(saved.providerOrder, ["cursor", "codex", "claude"]);
+assert.deepEqual(resetSettings(null), SETTING_DEFAULTS);
+assert.deepEqual(providerOrder(reset.providerOrder), PROVIDERS);
+assert.deepEqual(enabledInOrder(providerOrder(reset.providerOrder), reset.enabledProviders), DEFAULT_ENABLED);
+assert.deepEqual(selectedProviders(reset.enabledProviders, reset.hiddenProviders), DEFAULT_ENABLED);
+const order = providerOrder(saved.providerOrder);
+assert.deepEqual(order, ["cursor", "codex", "claude", "opencode", "grok", "antigravity", "zai"]);
+assert.deepEqual(moveItem(order, "zai", 0), ["zai", "cursor", "codex", "claude", "opencode", "grok", "antigravity"]);
+assert.deepEqual(moveItem(order, "claude", 0), ["claude", "cursor", "codex", "opencode", "grok", "antigravity", "zai"]);
+assert.deepEqual(moveItem(order, "cursor", 2), ["codex", "claude", "cursor", "opencode", "grok", "antigravity", "zai"]);
+assert.deepEqual(moveItem(order, "cursor", -1), order);
+assert.deepEqual(moveItem(order, "grok", 99), ["cursor", "codex", "claude", "opencode", "antigravity", "zai", "grok"]);
+assert.deepEqual(moveItem(order, "missing", 0), order);
+assert.deepEqual(moveItem(saved.providerOrder, "claude", 0), ["claude", "cursor", "codex"]);
+const seqOrder = {0: "cursor", 1: "codex", 2: "claude", length: 3};
+assert.deepEqual(moveItem(seqOrder, "claude", 0), ["claude", "cursor", "codex"]);
 console.log("OK");
 """
         subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)

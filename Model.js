@@ -15,9 +15,34 @@ var PROVIDERS = Object.keys(PROVIDER_INFO)
 var REFRESH_MINUTES = [1, 2, 3, 5, 10, 15, 30, 60]
 var DEFAULT_ENABLED = ["claude", "codex"]
 var TROUBLESHOOTING_URL = "https://github.com/nejcm/omarchy-ai-usage#troubleshooting"
+var SETTING_DEFAULTS = {
+  providerOrder: [],
+  enabledProviders: DEFAULT_ENABLED,
+  hiddenProviders: [],
+  refreshIntervalSec: 300,
+  displayMode: "used",
+  warningThreshold: 80,
+  colorWarnings: true,
+  desktopNotifications: false
+}
 
 function providerList(value) {
   return value && typeof value === "object" && typeof value.length === "number" ? Array.prototype.slice.call(value) : []
+}
+
+function resetSettings(settings) {
+  return Object.assign({}, settings || {}, SETTING_DEFAULTS)
+}
+
+function moveItem(list, id, target) {
+  var order = providerList(list).slice()
+  var index = order.indexOf(id)
+  if (index < 0) return order
+  target = Math.max(0, Math.min(order.length - 1, target))
+  if (target === index) return order
+  order.splice(index, 1)
+  order.splice(target, 0, id)
+  return order
 }
 
 function enabledInOrder(order, enabled) {
