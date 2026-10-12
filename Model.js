@@ -16,14 +16,18 @@ var REFRESH_MINUTES = [1, 2, 3, 5, 10, 15, 30, 60]
 var DEFAULT_ENABLED = ["claude", "codex"]
 var TROUBLESHOOTING_URL = "https://github.com/nejcm/omarchy-ai-usage#troubleshooting"
 
+function providerList(value) {
+  return value && typeof value === "object" && typeof value.length === "number" ? Array.prototype.slice.call(value) : []
+}
+
 function enabledInOrder(order, enabled) {
-  var list = Array.isArray(enabled) ? enabled : []
+  var list = providerList(enabled)
   return order.filter(function(id) { return list.indexOf(id) >= 0 })
 }
 
 function providerOrder(saved) {
   var order = []
-  var requested = Array.isArray(saved) ? saved : []
+  var requested = providerList(saved)
   for (var i = 0; i < requested.length; i++) {
     if (PROVIDERS.indexOf(requested[i]) >= 0 && order.indexOf(requested[i]) < 0) order.push(requested[i])
   }
@@ -34,8 +38,9 @@ function providerOrder(saved) {
 }
 
 function selectedProviders(order, hidden) {
+  var list = providerList(hidden)
   return order.filter(function(id) {
-    return !Array.isArray(hidden) || hidden.indexOf(id) < 0
+    return list.indexOf(id) < 0
   })
 }
 

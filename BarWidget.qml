@@ -38,7 +38,7 @@ BarWidget {
   }
 
   function toggleProviderList(name, id, list) {
-    list = Array.isArray(list) ? list.slice() : []
+    list = Model.providerList(list)
     var index = list.indexOf(id)
     if (index < 0) list.push(id)
     else list.splice(index, 1)

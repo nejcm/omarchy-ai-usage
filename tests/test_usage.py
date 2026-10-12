@@ -776,6 +776,16 @@ class TransportTests(unittest.TestCase):
 
 
 class SharedTests(unittest.TestCase):
+    @unittest.skipUnless(Path("/usr/lib/qt6/bin/qmltestrunner").exists(), "Qt 6 QML test runner not installed")
+    def test_qml_provider_settings_after_restart(self):
+        result = subprocess.run(
+            ["/usr/lib/qt6/bin/qmltestrunner", "-input", str(ROOT / "tests/tst_provider_settings.qml"), "-o", "-,txt"],
+            env={**os.environ, "QT_QPA_PLATFORM": "offscreen", "QT_QPA_PLATFORMTHEME": "",
+                 "QT_QUICK_BACKEND": "software", "QT_LOGGING_TO_CONSOLE": "1"},
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_widget_collection_selection_and_late_output(self):
         source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
@@ -834,7 +844,7 @@ assert.equal(root.rows[0].status, "stale");
 const assert = require("node:assert/strict");
 const MODEL = "io.github.nejcm.ai-usage";
 const Model = { DEFAULT_ENABLED: DEFAULT_ENABLED, enabledInOrder: enabledInOrder,
-  selectedProviders: selectedProviders, providerOrder: providerOrder };
+  selectedProviders: selectedProviders, providerOrder: providerOrder, providerList: providerList };
 function makeHost() {
   let disk = { id: MODEL };
   const layout = { left: [], center: [], right: [{ id: MODEL }] };
@@ -911,6 +921,9 @@ assert.deepEqual(restarted.setting("enabledProviders", DEFAULT_ENABLED), ["claud
 assert.deepEqual(Model.enabledInOrder(restarted.setting("providerOrder", []), restarted.setting("enabledProviders", [])), ["cursor", "codex", "claude"]);
 assert.equal(restarted.setting("refreshIntervalSec", 300), 180);
 assert.equal(restarted.setting("warningState", {})["cursor:Cursor models"].fired, true);
+restarted.root.settings.enabledProviders = {0: "claude", 1: "codex", length: 2};
+clickToggle(restarted, "enabledProviders", "cursor");
+assert.deepEqual(host.disk().enabledProviders, ["claude", "codex", "cursor"]);
 console.log("OK");
 """
         subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
