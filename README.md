@@ -2,11 +2,11 @@
 
 See how much of your AI coding subscription you've used without opening each
 provider's dashboard. AI usage adds Claude Code, Codex, OpenCode, Cursor, Grok,
-and Antigravity usage to the Omarchy bar, with a panel for plan limits and reset
-countdowns.
+Antigravity, and Z.ai usage to the Omarchy bar, with a panel for plan limits and
+reset countdowns.
 
 ```text
-[claude] 42%  [chatgpt] 18%  [opencode] 7%  [cursor] 2%  [grok] 5%  [antigravity] 12%
+[claude] 42%  [chatgpt] 18%  [opencode] 7%  [cursor] 2%  [grok] 5%  [antigravity] 12%  [z.ai] 25%
 ```
 
 The bar shows each provider's most-used limit. Click it to see every available
@@ -35,6 +35,7 @@ of the screen height and scrolls when needed.
 | Cursor | Total usage, Cursor models, and other models |
 | Grok | Weekly shared pool and pay-as-you-go cap |
 | Antigravity | Shared Gemini and Claude/GPT pools, rolling 5-hour and weekly windows |
+| Z.ai | Session and weekly limits, and monthly web searches |
 
 The plugin reports subscription allowances, not token counts or estimated
 spending. A supported subscription and a local sign-in are needed for each
@@ -56,7 +57,7 @@ omarchy plugin enable io.github.nejcm.ai-usage --section right
 ```
 
 Sign in through the coding tools you use, then click the usage widget. All
-six providers are enabled initially. Turn off the ones you do not use in
+seven providers are enabled initially. Turn off the ones you do not use in
 settings. A provider without a usable sign-in shows `–` and an explanation in
 the panel.
 
@@ -74,7 +75,7 @@ starts on usage.
 | --- | --- | --- |
 | Enabled | Collect and display this provider | On for all providers |
 | Show in navbar | Show this provider in the bar; keep its panel readings and notifications when hidden | On for all providers |
-| Provider order | Move up or down to reorder both the bar and panel | Claude Code, Codex, OpenCode, Cursor, Grok, Antigravity |
+| Provider order | Move up or down to reorder both the bar and panel | Claude Code, Codex, OpenCode, Cursor, Grok, Antigravity, Z.ai |
 | Refresh interval | 1, 2, 3, 5, 10, 15, 30, or 60 minutes | 5 minutes |
 | Navbar display | Used %, remaining %, or both as `used / remaining` | Used % |
 | Warn at usage | Global threshold from 1–100% used | 80% |
@@ -103,8 +104,8 @@ entry.
 
 Claude Code is the exception to read-only credential access: the plugin can
 refresh an expired OAuth token and save the rotated credentials back to
-Claude's credential file. Codex, Cursor, Grok, and Antigravity sign-in renewal
-stays with their own tools. See [Claude OAuth refresh](#claude-oauth-refresh) for the safeguards.
+Claude's credential file. Codex, Cursor, Grok, Antigravity, and Z.ai sign-in
+renewal stays with their own tools. See [Claude OAuth refresh](#claude-oauth-refresh) for the safeguards.
 
 | Provider | Local credential file | Environment overrides |
 | --- | --- | --- |
@@ -114,6 +115,7 @@ stays with their own tools. See [Claude OAuth refresh](#claude-oauth-refresh) fo
 | Cursor | `~/.config/cursor/auth.json` | `XDG_CONFIG_HOME` |
 | Grok | `~/.grok/auth.json` | `GROK_HOME` |
 | Antigravity | `~/.gemini/antigravity-cli/antigravity-oauth-token` | — |
+| Z.ai | `~/.chelper/config.yaml` (`api_key`), else the Z.ai `ANTHROPIC_AUTH_TOKEN` in `~/.claude/settings.json` | `CLAUDE_CONFIG_DIR` |
 
 ### Troubleshooting
 
@@ -139,6 +141,10 @@ Some credential stores are not supported:
 - Antigravity normally keeps its token in the OS keyring; only the plaintext
   `agy` fallback file (headless Linux) is read. If the keyring holds the token
   the provider shows not signed in.
+- Z.ai has no key-entry UI here. It reads the key Z.ai's `chelper` CLI stores at
+  `~/.chelper/config.yaml`, otherwise the `ANTHROPIC_AUTH_TOKEN` in
+  `~/.claude/settings.json` when Claude Code is configured against Z.ai
+  (`ANTHROPIC_BASE_URL` `https://api.z.ai/api/anthropic`).
 
 ### Update or disable
 
@@ -261,6 +267,7 @@ refresh; that body is not included in usage output.
 | Cursor | `api2.cursor.sh` |
 | Grok | `cli-chat-proxy.grok.com` |
 | Antigravity | `cloudcode-pa.googleapis.com` |
+| Z.ai | `api.z.ai` |
 
 ### Claude OAuth refresh
 
