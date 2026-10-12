@@ -11,15 +11,17 @@ Column {
   property bool resetArmed: false
   spacing: Style.space(12)
 
+  function armReset() {
+    if (root.resetArmed) return
+    root.resetArmed = true
+    resetTimer.restart()
+  }
+
   function confirmReset() {
-    if (!resetArmed) {
-      resetArmed = true
-      resetTimer.restart()
-      return
-    }
     resetTimer.stop()
-    resetArmed = false
+    root.resetArmed = false
     root.hostWidget.resetSettings()
+    resetButton.forceActiveFocus()
   }
 
   component Label: Text {
@@ -245,12 +247,24 @@ Column {
     foreground: root.foreground
   }
   Button {
+    id: resetButton
     width: parent.width
     leftAlign: true
-    text: root.resetArmed ? "Click again to reset" : "Reset to defaults"
+    text: "Reset to defaults"
     tooltipText: "Restore provider enablement, order, and preferences"
-    selected: root.resetArmed
-    foreground: root.resetArmed ? Color.urgent : root.foreground
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+    focusable: true
+    onClicked: root.armReset()
+  }
+  Button {
+    visible: root.resetArmed
+    width: parent.width
+    leftAlign: true
+    text: "Confirm reset"
+    tooltipText: "Restore all settings to their defaults"
+    selected: true
+    foreground: Color.urgent
     fontFamily: root.fontFamily
     focusable: true
     onClicked: root.confirmReset()

@@ -83,7 +83,7 @@ starts on usage.
 | Warn at usage | Global threshold from 1–100% used | 80% |
 | Warning colors | Highlight limits at or above the threshold | On |
 | Desktop notifications | Notify when a limit reaches the threshold | Off |
-| Reset to defaults | Restore provider enablement, order, navbar visibility, refresh interval, and warnings. The first click arms the action; a second click within five seconds confirms | — |
+| Reset to defaults | Restore provider enablement, order, navbar visibility, refresh interval, and warnings. Reset shows a separate Confirm button; confirming within five seconds applies it | — |
 
 Disabling a provider preserves its credentials and preferences. An already
 running collection finishes safely, but its disabled results are discarded.
