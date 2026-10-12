@@ -393,32 +393,34 @@ def persist_rotation(path: str, original: dict, rotated: dict) -> str:
 
 def _refresh_locked(request, path: str, original: dict, refresh_token: str):
     lock = _RefreshLock(os.path.join(os.path.dirname(path) or ".", LOCK_NAME))
-    if not lock.acquire():
-        return None, "refresh-locked"
     # SIGTERM stays pending until the rotation is persisted and the lock released.
     previous = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
     try:
-        current, error = _read_oauth(path)
-        if error:
-            return None, "reread-failed"
-        if current != original:
-            return current, None
-        if not lock.still_owned():
-            return None, "lock-lost"
-        fields, error = refresh_access_token(request, refresh_token, lock, _requested_scopes(original))
-        if error:
-            return None, error
-        status = persist_rotation(path, original, fields)
-        if status == "changed":
-            current, _ = _read_oauth(path)
-            if current is not None:
+        if not lock.acquire():
+            return None, "refresh-locked"
+        try:
+            current, error = _read_oauth(path)
+            if error:
+                return None, "reread-failed"
+            if current != original:
                 return current, None
-            return None, "persist-changed"
-        if status != "ok":
-            return None, "persist-" + status
-        return _apply_rotation(original, fields), None
+            if not lock.still_owned():
+                return None, "lock-lost"
+            fields, error = refresh_access_token(request, refresh_token, lock, _requested_scopes(original))
+            if error:
+                return None, error
+            status = persist_rotation(path, original, fields)
+            if status == "changed":
+                current, _ = _read_oauth(path)
+                if current is not None:
+                    return current, None
+                return None, "persist-changed"
+            if status != "ok":
+                return None, "persist-" + status
+            return _apply_rotation(original, fields), None
+        finally:
+            lock.release()
     finally:
-        lock.release()
         signal.pthread_sigmask(signal.SIG_SETMASK, previous)
 
 
