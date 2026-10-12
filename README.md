@@ -77,12 +77,13 @@ starts on usage.
 | --- | --- | --- |
 | Enabled | Collect and display this provider | On for Claude Code and Codex |
 | Show in navbar | Show this provider in the bar; keep its panel readings and notifications when hidden | On for all providers |
-| Provider order | Move up or down to reorder both the bar and panel | Claude Code, Codex, OpenCode, Cursor, Grok, Antigravity, Z.ai |
+| Provider order | Move up, down, or to top to reorder both the bar and panel | Claude Code, Codex, OpenCode, Cursor, Grok, Antigravity, Z.ai |
 | Refresh interval | 1, 2, 3, 5, 10, 15, 30, or 60 minutes | 5 minutes |
 | Navbar display | Used %, remaining %, or both as `used / remaining` | Used % |
 | Warn at usage | Global threshold from 1–100% used | 80% |
 | Warning colors | Highlight limits at or above the threshold | On |
 | Desktop notifications | Notify when a limit reaches the threshold | Off |
+| Reset to defaults | Restore provider enablement, order, navbar visibility, refresh interval, and warnings. The first click arms the action; a second click within five seconds confirms | — |
 
 Disabling a provider preserves its credentials and preferences. An already
 running collection finishes safely, but its disabled results are discarded.
