@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import usage  # noqa: E402
-from providers import claude, codex, common, cursor, opencode  # noqa: E402
+from providers import claude, codex, common, cursor, grok, opencode  # noqa: E402
 import providers as providers_pkg  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -414,6 +414,134 @@ class CursorTests(ProviderCase):
         write(self.home, self.AUTH, self.valid_auth())
         row = cursor.collect(FakeRequest({"": common.Response(429, None)}), self.home, {})
         self.assertEqual(row["status"], common.RATE_LIMITED)
+
+
+class GrokTests(ProviderCase):
+    AUTH = ".grok/auth.json"
+
+    def valid_auth(self):
+        return {"https://auth.x.ai::client": {"key": make_jwt(FUTURE_EXP), "refresh_token": "r"}}
+
+    def routes(self):
+        return {"billing?format=credits": common.Response(200, load("grok_usage.json")),
+                "settings": common.Response(200, {"subscription_tier_display": "SuperGrok Heavy"})}
+
+    def test_valid(self):
+        write(self.home, self.AUTH, self.valid_auth())
+        request = FakeRequest(self.routes())
+        row = grok.collect(request, self.home, {})
+        self.assertEqual(row["status"], common.OK)
+        self.assertEqual(row["plan"], "SuperGrok Heavy")
+        self.assertEqual([m["label"] for m in row["metrics"]], ["Weekly", "Pay as you go"])
+        self.assertEqual([m["percent"] for m in row["metrics"]], [42.0, 20.0])
+        self.assertEqual(row["metrics"][0]["resetsAt"], "2026-07-07T21:36:52Z")
+        self.assertEqual(row["metrics"][1]["resetsAt"], "2026-07-07T21:36:52Z")
+        self.assertEqual(request.calls[0]["headers"].get("X-XAI-Token-Auth"), "xai-grok-cli")
+
+    def test_non_weekly_period_omits_weekly(self):
+        payload = load("grok_usage.json")
+        payload["config"]["currentPeriod"]["type"] = "USAGE_PERIOD_TYPE_MONTHLY"
+        self.assertEqual([m["label"] for m in grok.parse(payload)], ["Pay as you go"])
+
+    def test_absent_cap_omits_pay_as_you_go(self):
+        payload = load("grok_usage.json")
+        del payload["config"]["onDemandCap"]
+        self.assertEqual([m["label"] for m in grok.parse(payload)], ["Weekly"])
+
+    def test_absent_on_demand_used_is_zero(self):
+        payload = load("grok_usage.json")
+        del payload["config"]["onDemandUsed"]
+        self.assertEqual([m["percent"] for m in grok.parse(payload)], [42.0, 0.0])
+
+    def test_malformed_on_demand_used_is_omitted_not_zero(self):
+        for bad in ("bad", True, False):
+            with self.subTest(val=bad):
+                payload = load("grok_usage.json")
+                payload["config"]["onDemandUsed"] = {"val": bad}
+                self.assertEqual([m["label"] for m in grok.parse(payload)], ["Weekly"])
+
+    def test_malformed_usage_does_not_raise(self):
+        self.assertEqual(grok.parse({"config": "bad"}), [])
+        self.assertEqual(grok.parse({"config": {"currentPeriod": "bad"}}), [])
+        self.assertEqual(grok.parse({"config": {"onDemandCap": {"val": "bad"},
+                                                "currentPeriod": {"type": "USAGE_PERIOD_TYPE_WEEKLY"}}}), [])
+        self.assertEqual(grok.parse({"config": {"onDemandCap": {"val": "bad"}}}), [])
+
+    def test_weekly_period_requires_valid_timestamps(self):
+        for period in ({"type": "USAGE_PERIOD_TYPE_WEEKLY"},
+                       {"type": "USAGE_PERIOD_TYPE_WEEKLY", "start": "garbage", "end": "2026-07-07T21:36:52Z"},
+                       {"type": "USAGE_PERIOD_TYPE_WEEKLY", "start": "2026-07-07T21:36:52Z", "end": "2026-07-01T00:00:00Z"}):
+            with self.subTest(period=period):
+                self.assertEqual(grok.parse({"config": {"currentPeriod": period}}), [])
+
+    def test_missing_auth(self):
+        self.assertEqual(grok.collect(FakeRequest({}), self.home, {})["status"], common.NOT_SIGNED_IN)
+
+    def test_malformed_auth(self):
+        write(self.home, self.AUTH, "{not json")
+        self.assertEqual(grok.collect(FakeRequest({}), self.home, {})["error"], "malformed-auth")
+
+    def test_entry_without_key_is_not_signed_in(self):
+        write(self.home, self.AUTH, {"https://auth.x.ai::client": {"refresh_token": "r"}})
+        self.assertEqual(grok.collect(FakeRequest({}), self.home, {})["status"], common.NOT_SIGNED_IN)
+
+    def test_expired_auth(self):
+        write(self.home, self.AUTH, {"https://auth.x.ai::client": {"key": make_jwt(PAST_EXP)}})
+        request = FakeRequest(self.routes())
+        row = grok.collect(request, self.home, {})
+        self.assertEqual(row["status"], common.EXPIRED)
+        self.assertEqual(request.calls, [])
+
+    def test_live_later_entry_wins_over_expired_first(self):
+        write(self.home, self.AUTH, {"https://auth.x.ai::old": {"key": make_jwt(PAST_EXP)},
+                                     "https://auth.x.ai::client": {"key": make_jwt(FUTURE_EXP)}})
+        request = FakeRequest(self.routes())
+        row = grok.collect(request, self.home, {})
+        self.assertEqual(row["status"], common.OK)
+        self.assertEqual(request.calls[0]["headers"]["Authorization"], "Bearer " + make_jwt(FUTURE_EXP))
+
+    def test_all_expired_entries_still_expired(self):
+        write(self.home, self.AUTH, {"https://auth.x.ai::a": {"key": make_jwt(PAST_EXP)},
+                                     "https://auth.x.ai::b": {"key": make_jwt(PAST_EXP - 1)}})
+        request = FakeRequest(self.routes())
+        row = grok.collect(request, self.home, {})
+        self.assertEqual(row["status"], common.EXPIRED)
+        self.assertEqual(request.calls, [])
+
+    def test_api_key_scope_is_skipped(self):
+        write(self.home, self.AUTH, {"xai::api_key": {"key": "api-key-secret"},
+                                     "https://auth.x.ai::client": {"key": make_jwt(FUTURE_EXP)}})
+        request = FakeRequest(self.routes())
+        row = grok.collect(request, self.home, {})
+        self.assertEqual(row["status"], common.OK)
+        self.assertEqual(request.calls[0]["headers"]["Authorization"], "Bearer " + make_jwt(FUTURE_EXP))
+
+    def test_api_key_only_is_not_signed_in(self):
+        write(self.home, self.AUTH, {"xai::api_key": {"key": "api-key-secret"}})
+        request = FakeRequest(self.routes())
+        row = grok.collect(request, self.home, {})
+        self.assertEqual(row["status"], common.NOT_SIGNED_IN)
+        self.assertEqual(request.calls, [])
+
+    def test_sign_in_expired_on_401(self):
+        write(self.home, self.AUTH, self.valid_auth())
+        row = grok.collect(FakeRequest({"billing?format=credits": common.Response(401, None)}), self.home, {})
+        self.assertEqual(row["status"], common.EXPIRED)
+
+    def test_rate_limited(self):
+        write(self.home, self.AUTH, self.valid_auth())
+        row = grok.collect(FakeRequest({"billing?format=credits": common.Response(429, None)}), self.home, {})
+        self.assertEqual(row["status"], common.RATE_LIMITED)
+
+    def test_token_not_in_row(self):
+        write(self.home, self.AUTH, self.valid_auth())
+        row = grok.collect(FakeRequest(self.routes()), self.home, {})
+        self.assertNotIn(make_jwt(FUTURE_EXP), json.dumps(row))
+
+    def test_grok_home_override(self):
+        env = {"GROK_HOME": str(Path(self.home) / "grokhome")}
+        write(self.home, "grokhome/auth.json", self.valid_auth())
+        self.assertEqual(grok.collect(FakeRequest(self.routes()), self.home, env)["status"], common.OK)
 
 
 class RefreshLockTests(ProviderCase):
@@ -880,9 +1008,9 @@ assert.equal(root.rows[0].status, "stale");
         source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
         script = source + """
 const assert = require("node:assert/strict");
-assert.deepEqual(providerOrder(["cursor", "bad", "cursor"]), ["cursor", "claude", "codex", "opencode"]);
+assert.deepEqual(providerOrder(["cursor", "bad", "cursor"]), ["cursor", "claude", "codex", "opencode", "grok"]);
 assert.deepEqual(providerOrder(null), PROVIDERS);
-assert.deepEqual(selectedProviders(PROVIDERS, ["claude"], ["cursor"]), ["codex", "opencode"]);
+assert.deepEqual(selectedProviders(PROVIDERS, ["claude"], ["cursor"]), ["codex", "opencode", "grok"]);
 assert.deepEqual(selectedProviders(PROVIDERS, PROVIDERS), []);
 assert.deepEqual(selectedProviders(PROVIDERS, {}, {}), PROVIDERS);
 const rows = PROVIDERS.map(provider => ({provider, status:"ok", metrics:[{percent:70.4}]}));
@@ -1025,12 +1153,15 @@ console.log(JSON.stringify({rows:rows, marked:markStale(rows)}));
             write(home, ".codex/auth.json", {"tokens": {"access_token": make_jwt(FUTURE_EXP)}})
             write(home, ".local/share/opencode/auth.json", {"opencode-go": {"key": "k"}})
             write(home, ".config/cursor/auth.json", {"accessToken": make_jwt(FUTURE_EXP)})
+            write(home, ".grok/auth.json", {"https://auth.x.ai::client": {"key": make_jwt(FUTURE_EXP)}})
             routes = {
                 "api.anthropic.com": common.Response(200, load("claude_usage.json")),
                 "chatgpt.com": common.Response(200, load("codex_usage.json")),
                 "opencode.ai": common.Response(200, load("opencode_usage.json")),
                 "GetCurrentPeriodUsage": common.Response(200, load("cursor_usage.json")),
                 "GetPlanInfo": common.Response(200, load("cursor_plan.json")),
+                "billing?format=credits": common.Response(200, load("grok_usage.json")),
+                "settings": common.Response(200, {"subscription_tier_display": "SuperGrok Heavy"}),
             }
 
             def router(method, url, hosts, headers, body=None, error_body=False):
@@ -1038,7 +1169,7 @@ console.log(JSON.stringify({rows:rows, marked:markStale(rows)}));
                 return routes.get(host) or routes.get(url.rsplit("/", 1)[-1]) or common.Response(0, None, "network")
 
             rows = usage.collect_all(home, {}, router)
-            self.assertEqual([r["provider"] for r in rows], ["claude", "codex", "opencode", "cursor"])
+            self.assertEqual([r["provider"] for r in rows], ["claude", "codex", "opencode", "cursor", "grok"])
             self.assertTrue(all(r["status"] == common.OK for r in rows))
             json.dumps({"providers": rows})
 

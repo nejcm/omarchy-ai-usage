@@ -5,7 +5,7 @@
   "version": "0.1.1",
   "author": "Nejc",
   "license": "MIT",
-  "description": "Subscription quota for Claude Code, Codex, OpenCode, and Cursor in an Omarchy bar panel.",
+  "description": "Subscription quota for Claude Code, Codex, OpenCode, Cursor, and Grok in an Omarchy bar panel.",
   "kinds": ["bar-widget"],
   "entryPoints": {
     "barWidget": "BarWidget.qml"

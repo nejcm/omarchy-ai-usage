@@ -1,11 +1,11 @@
 # AI usage for Omarchy
 
 See how much of your AI coding subscription you've used without opening each
-provider's dashboard. AI usage adds Claude Code, Codex, OpenCode, and Cursor
-usage to the Omarchy bar, with a panel for plan limits and reset countdowns.
+provider's dashboard. AI usage adds Claude Code, Codex, OpenCode, Cursor, and
+Grok usage to the Omarchy bar, with a panel for plan limits and reset countdowns.
 
 ```text
-[claude] 42%  [chatgpt] 18%  [opencode] 7%  [cursor] 2%
+[claude] 42%  [chatgpt] 18%  [opencode] 7%  [cursor] 2%  [grok] 5%
 ```
 
 The bar shows each provider's most-used limit. Click it to see every available
@@ -32,6 +32,7 @@ of the screen height and scrolls when needed.
 | Codex | Session and weekly limits |
 | OpenCode Go | Session, weekly, and monthly limits |
 | Cursor | Total usage, Cursor models, and other models |
+| Grok | Weekly shared pool and pay-as-you-go cap |
 
 The plugin reports subscription allowances, not token counts or estimated
 spending. A supported subscription and a local sign-in are needed for each
@@ -53,7 +54,7 @@ omarchy plugin enable io.github.nejcm.ai-usage --section right
 ```
 
 Sign in through the coding tools you use, then click the usage widget. All
-four providers are enabled initially. Turn off the ones you do not use in
+five providers are enabled initially. Turn off the ones you do not use in
 settings. A provider without a usable sign-in shows `–` and an explanation in
 the panel.
 
@@ -71,7 +72,7 @@ starts on usage.
 | --- | --- | --- |
 | Enabled | Collect and display this provider | On for all providers |
 | Show in navbar | Show this provider in the bar; keep its panel readings and notifications when hidden | On for all providers |
-| Provider order | Move up or down to reorder both the bar and panel | Claude Code, Codex, OpenCode, Cursor |
+| Provider order | Move up or down to reorder both the bar and panel | Claude Code, Codex, OpenCode, Cursor, Grok |
 | Refresh interval | 1, 2, 3, 5, 10, 15, 30, or 60 minutes | 5 minutes |
 | Navbar display | Used %, remaining %, or both as `used / remaining` | Used % |
 | Warn at usage | Global threshold from 1–100% used | 80% |
@@ -100,8 +101,8 @@ entry.
 
 Claude Code is the exception to read-only credential access: the plugin can
 refresh an expired OAuth token and save the rotated credentials back to
-Claude's credential file. Codex and Cursor sign-in renewal stays with their
-own tools. See [Claude OAuth refresh](#claude-oauth-refresh) for the safeguards.
+Claude's credential file. Codex, Cursor, and Grok sign-in renewal stays with
+their own tools. See [Claude OAuth refresh](#claude-oauth-refresh) for the safeguards.
 
 | Provider | Local credential file | Environment overrides |
 | --- | --- | --- |
@@ -109,6 +110,7 @@ own tools. See [Claude OAuth refresh](#claude-oauth-refresh) for the safeguards.
 | Codex | `~/.codex/auth.json` | `CODEX_HOME` |
 | OpenCode | `~/.local/share/opencode/auth.json` | `XDG_DATA_HOME`, `OPENCODE_DATA_DIR` |
 | Cursor | `~/.config/cursor/auth.json` | `XDG_CONFIG_HOME` |
+| Grok | `~/.grok/auth.json` | `GROK_HOME` |
 
 ### Troubleshooting
 
@@ -251,6 +253,7 @@ refresh; that body is not included in usage output.
 | Codex | `chatgpt.com` |
 | OpenCode | `opencode.ai` |
 | Cursor | `api2.cursor.sh` |
+| Grok | `cli-chat-proxy.grok.com` |
 
 ### Claude OAuth refresh
 
