@@ -36,6 +36,19 @@ class ClaudeTests(ProviderCase):
         return {"claudeAiOauth": {"accessToken": "SECRET-TOKEN", "expiresAt": FUTURE_EXP * 1000,
                                   "refreshToken": "refresh", "rateLimitTier": "default_claude_max_20x"}}
 
+    def collect_counting_exchanges(self, request):
+        """Collect with exchanges counted in-process; the token call itself forks."""
+        real_refresh = claude.refresh_access_token
+        exchanges = []
+
+        def refresh(*args, **kwargs):
+            exchanges.append(args)
+            return real_refresh(*args, **kwargs)
+
+        with mock.patch("providers.claude.refresh_access_token", side_effect=refresh):
+            row = claude.collect(request, self.home, {})
+        return row, exchanges
+
     def test_valid(self):
         write(self.home, self.AUTH, self.valid_auth())
         request = FakeRequest({"oauth/usage": common.Response(200, load("claude_usage.json"))})
@@ -91,6 +104,46 @@ class ClaudeTests(ProviderCase):
         request = FakeRequest({"oauth/token": common.Response(401, None)})
         row = claude.collect(request, self.home, {})
         self.assertEqual(row["error"], "refresh-rejected")
+
+    def test_usage_401_on_valid_token_refreshes_then_retries(self):
+        write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "old-token", "refreshToken": "refresh",
+                                                       "expiresAt": FUTURE_EXP * 1000}})
+        request = FakeRequest({"oauth/token": common.Response(200, {"access_token": "new-token",
+                                                                    "refresh_token": "new-refresh",
+                                                                    "expires_in": 3600}),
+                               "oauth/usage": [common.Response(401, None),
+                                               common.Response(200, load("claude_usage.json"))]})
+        row, exchanges = self.collect_counting_exchanges(request)
+        self.assertEqual(row["status"], common.OK)
+        usage = [call for call in request.calls if "oauth/usage" in call["url"]]
+        self.assertEqual([call["headers"]["Authorization"] for call in usage],
+                         ["Bearer old-token", "Bearer new-token"])
+        self.assertEqual(len(exchanges), 1)
+
+    def test_usage_401_kept_when_refresh_fails(self):
+        write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "old-token", "refreshToken": "refresh",
+                                                       "expiresAt": FUTURE_EXP * 1000}})
+        request = FakeRequest({"oauth/token": common.Response(500, None),
+                               "oauth/usage": common.Response(401, None)})
+        row, exchanges = self.collect_counting_exchanges(request)
+        self.assertEqual(row["status"], common.EXPIRED)
+        self.assertEqual(row["error"], "http-401")
+        self.assertEqual(len(exchanges), 1)
+        self.assertEqual(len([call for call in request.calls if "oauth/usage" in call["url"]]), 1)
+
+    def test_usage_401_after_expiry_refresh_does_not_refresh_again(self):
+        write(self.home, self.AUTH, {"claudeAiOauth": {"accessToken": "old-token", "refreshToken": "old-refresh",
+                                                       "expiresAt": PAST_EXP * 1000}})
+        request = FakeRequest({"oauth/token": common.Response(200, {"access_token": "new-token",
+                                                                    "expires_in": 3600}),
+                               "oauth/usage": common.Response(401, None)})
+        row, exchanges = self.collect_counting_exchanges(request)
+        self.assertEqual(row["status"], common.EXPIRED)
+        self.assertEqual(row["error"], "http-401")
+        self.assertEqual(len(exchanges), 1)
+        usage = [call for call in request.calls if "oauth/usage" in call["url"]]
+        self.assertEqual(len(usage), 1)
+        self.assertEqual(usage[0]["headers"]["Authorization"], "Bearer new-token")
 
     def test_oauth_error_allow_list(self):
         self.assertEqual(claude._oauth_error({"error": "invalid_grant"}), "invalid_grant")
