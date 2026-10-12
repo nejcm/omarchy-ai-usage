@@ -133,8 +133,8 @@ renewal stays with their own tools. See [Claude OAuth refresh](#claude-oauth-ref
 The panel shows known errors in plain language and, for the common ones, a
 short next step such as which CLI opens to renew a sign-in or the settings
 change for rate limiting. Hover a status line for the raw collector code;
-providers that need sign-in add a link to this section, and settings shows the
-same connect hint next to each provider.
+providers that need sign-in add a link to this section in the panel and
+settings, and settings shows the same connect hint next to each provider.
 
 If the widget does not appear, run `omarchy-shell shell rescanPlugins` and
 retry the enable command. The plugin runs inside the existing Omarchy shell;

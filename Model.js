@@ -91,6 +91,7 @@ var ERROR_TEXT = {
   "refresh-timeout": "Sign-in refresh timed out",
   "reread-failed": "Credentials could not be re-read",
   "persist-changed": "Credentials changed during refresh",
+  "persist-unreadable": "Credentials unreadable",
   "persist-write-failed": "Could not save refreshed sign-in",
   "persist-lock-lost": "Credential lock lost during refresh",
   "write-failed": "Could not save credentials",
@@ -200,7 +201,7 @@ function statusDetail(row) {
 function statusHint(row) {
   if (!row) return ""
   var cli = providerCli(row.provider)
-  if (cli && row.status === "not-signed-in") return "Sign in with " + cli + " to connect"
+  if (cli && (row.status === "not-signed-in" || row.error === "not-signed-in")) return "Sign in with " + cli + " to connect"
   if (cli && (row.status === "expired" || SIGN_IN_ERRORS.indexOf(row.error) >= 0)) return "Open " + cli + " to renew sign-in"
   if (row.status === "rate-limited" || row.error === "http-429") return "Raise the refresh interval"
   if (row.error === "refresh-locked") return "Retrying on the next update"
@@ -214,7 +215,9 @@ function providerCli(provider) {
 }
 
 function needsSignIn(row) {
-  return !!row && (row.status === "not-signed-in" || row.status === "expired")
+  if (!row) return false
+  if (row.status === "not-signed-in" || row.status === "expired") return true
+  return row.error === "not-signed-in" || SIGN_IN_ERRORS.indexOf(row.error) >= 0
 }
 
 function connectHint(row) {

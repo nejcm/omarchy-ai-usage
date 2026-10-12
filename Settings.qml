@@ -208,4 +208,15 @@ Column {
     fontFamily: root.fontFamily
     onClicked: root.hostWidget.saveSetting("desktopNotifications", !checked)
   }
+
+  Button {
+    visible: root.hostWidget && Model.anyNeedsSignIn(root.hostWidget.rows)
+    text: "Troubleshooting"
+    iconText: "↗"
+    tooltipText: Model.TROUBLESHOOTING_URL
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+    focusable: true
+    onClicked: Qt.openUrlExternally(Model.TROUBLESHOOTING_URL)
+  }
 }

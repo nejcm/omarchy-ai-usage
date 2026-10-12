@@ -1043,6 +1043,24 @@ assert.equal(statusHint({provider:"claude", status:"stale", error:"refresh-timeo
 assert.equal(statusText({status:"error", error:"some-new-code"}), "error (some-new-code)");
 assert.equal(statusText({provider:"codex", status:"unavailable", error:"api-key-auth"}),
   "API key sign-in unsupported");
+assert.equal(statusText({provider:"claude", status:"error", error:"persist-unreadable"}),
+  "Credentials unreadable");
+const good = {provider:"claude", name:"Claude Code", status:"ok",
+  metrics:[{label:"Session", percent:42, resetsAt:""}], plan:"Pro", refreshedAt:"t1"};
+const signedOut = mergeRows([good], [{provider:"claude", name:"Claude Code",
+  status:"not-signed-in", error:"", metrics:[]}])[0];
+assert.equal(signedOut.status, "stale");
+assert.equal(signedOut.error, "not-signed-in");
+assert.equal(statusText(signedOut), "Not signed in");
+assert.equal(statusHint(signedOut), "Sign in with claude to connect");
+assert.equal(connectHint(signedOut), "Sign in with claude to connect");
+assert.equal(anyNeedsSignIn([signedOut]), true);
+const expiredStale = mergeRows([good], [{provider:"claude", name:"Claude Code",
+  status:"expired", error:"http-401", metrics:[]}])[0];
+assert.equal(expiredStale.status, "stale");
+assert.equal(statusHint(expiredStale), "Open claude to renew sign-in");
+assert.equal(connectHint(expiredStale), "Open claude to renew sign-in");
+assert.equal(anyNeedsSignIn([expiredStale]), true);
 assert.equal(barTooltip("used"), "AI usage \\u2014 percent used of each provider's most-restricted limit");
 assert.equal(barTooltip("remaining"), "AI usage \\u2014 percent remaining of each provider's most-restricted limit");
 assert.equal(barTooltip("both"), "AI usage \\u2014 percent used and remaining of each provider's most-restricted limit");
