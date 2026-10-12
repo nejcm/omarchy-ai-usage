@@ -16,10 +16,10 @@ HOSTS = ("cloudcode-pa.googleapis.com",)
 USAGE_URL = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
 
 BUCKETS = (
-    ("gemini-5h", "Session"),
-    ("gemini-weekly", "Weekly"),
-    ("3p-5h", "Claude"),
-    ("3p-weekly", "Claude Weekly"),
+    ("gemini-5h", "Session", 5 * 60),
+    ("gemini-weekly", "Weekly", 7 * 24 * 60),
+    ("3p-5h", "Claude", 5 * 60),
+    ("3p-weekly", "Claude Weekly", 7 * 24 * 60),
 )
 
 
@@ -72,12 +72,12 @@ def parse(payload: dict) -> list:
             buckets[bucket_id] = (max(0.0, min(1.0, fraction)), common.reset_iso(bucket.get("resetTime")))
 
     metrics = []
-    for bucket_id, label in BUCKETS:
+    for bucket_id, label, minutes in BUCKETS:
         entry = buckets.get(bucket_id)
         if entry is None:
             continue
         fraction, reset = entry
-        metric = common.metric(label, common.percent((1.0 - fraction) * 100.0), reset)
+        metric = common.metric(label, common.percent((1.0 - fraction) * 100.0), reset, minutes)
         if metric:
             metrics.append(metric)
     return metrics

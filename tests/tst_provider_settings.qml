@@ -54,4 +54,13 @@ TestCase {
     compare(Model.moveItem(order, "grok", 99), ["cursor", "codex", "claude", "opencode", "antigravity", "zai", "grok"])
     compare(Model.moveItem(order, "missing", 0), order)
   }
+
+  function test_elapsed_fraction() {
+    var now = Date.parse("2026-10-13T00:00:00Z")
+    compare(Model.elapsedFraction({ windowMinutes: 7 * 24 * 60, resetsAt: "2026-10-14T00:00:00Z" }, now), 6 / 7)
+    compare(Model.elapsedFraction({ windowMinutes: 24 * 60, resetsAt: "2026-10-13T12:00:00Z" }, now), 0.5)
+    compare(Model.elapsedFraction({ windowMinutes: null, resetsAt: "2026-10-14T00:00:00Z" }, now), -1)
+    compare(Model.elapsedFraction({ windowMinutes: 300, resetsAt: "" }, now), -1)
+    compare(Model.elapsedFraction({ windowMinutes: 300, resetsAt: "2026-10-12T00:00:00Z" }, now), -1)
+  }
 }

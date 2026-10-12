@@ -328,6 +328,16 @@ function resetText(iso, nowMs) {
   return Math.floor(hours / 24) + "d " + (hours % 24) + "h"
 }
 
+// Share of the limit window already elapsed (0..1), or -1 when the window length is unknown.
+function elapsedFraction(metric, nowMs) {
+  var minutes = metric && Number(metric.windowMinutes)
+  var target = minutes ? Date.parse(metric.resetsAt) : NaN
+  if (isNaN(target)) return -1
+  var now = (nowMs === undefined || nowMs === null) ? Date.now() : nowMs
+  var left = (target - now) / (minutes * 60000)
+  return left < 0 || left > 1 ? -1 : 1 - left
+}
+
 function updatedText(iso, nowMs) {
   if (!iso) return ""
   var target = Date.parse(iso)

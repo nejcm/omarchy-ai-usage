@@ -60,8 +60,9 @@ def _period(config: dict):
     start = common.parse_time(period.get("start"))
     end = common.parse_time(period.get("end"))
     if start is None or end is None or end <= start:
-        return "", ""
-    return str(period.get("type") or "").strip(), end.isoformat().replace("+00:00", "Z")
+        return "", "", None
+    return (str(period.get("type") or "").strip(), end.isoformat().replace("+00:00", "Z"),
+            (end - start).total_seconds() / 60)
 
 
 def _cent(value):
@@ -77,18 +78,19 @@ def parse(payload: dict) -> list:
     config = payload.get("config")
     if not isinstance(config, dict):
         config = {}
-    period_type, period_end = _period(config)
+    period_type, period_end, period_minutes = _period(config)
     metrics = []
     if period_type == WEEKLY_PERIOD:
         # proto-JSON drops a zero percent, so an absent field is a genuine 0.
-        metric = common.metric("Weekly", common.percent(config.get("creditUsagePercent", 0)), period_end)
+        metric = common.metric("Weekly", common.percent(config.get("creditUsagePercent", 0)), period_end,
+                               period_minutes)
         if metric:
             metrics.append(metric)
     cap = _cent(config.get("onDemandCap"))
     if cap and cap > 0:
         used = _cent(config.get("onDemandUsed"))
         if used is not None:
-            metric = common.metric("Pay as you go", common.percent(used / cap * 100.0), period_end)
+            metric = common.metric("Pay as you go", common.percent(used / cap * 100.0), period_end, period_minutes)
             if metric:
                 metrics.append(metric)
     return metrics

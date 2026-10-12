@@ -271,6 +271,7 @@ class CodexTests(ProviderCase):
 
     def test_malformed_rate_limit_does_not_raise(self):
         self.assertEqual(codex.parse({"rate_limit": "bad"}), [])
+        self.assertEqual([m["windowMinutes"] for m in codex.parse(load("codex_usage.json"))], [300, 10080])
         self.assertEqual(codex.parse({"rate_limit": {"primary_window": "bad"}}), [])
 
     def test_expired_auth(self):

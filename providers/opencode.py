@@ -64,7 +64,8 @@ def parse(payload: dict) -> list:
     if not isinstance(usage, dict):
         usage = {}
     metrics = []
-    for key, label in (("rolling", "Session"), ("weekly", "Weekly"), ("monthly", "Monthly")):
+    for key, label, minutes in (("rolling", "Session", SESSION_SECONDS / 60), ("weekly", "Weekly", 7 * 24 * 60),
+                                ("monthly", "Monthly", 30 * 24 * 60)):
         window = usage.get(key)
         if not isinstance(window, dict):
             continue
@@ -74,7 +75,7 @@ def parse(payload: dict) -> list:
         reset = common.reset_iso(window.get("resetsAt"))
         if key == "rolling" and pct == 0 and _idle_placeholder(reset):
             reset = ""
-        metric = common.metric(label, pct, reset)
+        metric = common.metric(label, pct, reset, minutes)
         if metric:
             metrics.append(metric)
     return metrics

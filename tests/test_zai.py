@@ -124,6 +124,7 @@ class ZaiTests(ProviderCase):
         payload = {"data": {"limits": [
             {"type": "TOKENS_LIMIT", "unit": 4, "number": 1, "percentage": 60, "nextResetTime": 1767225600000}]}}
         self.assertEqual([m["label"] for m in zai.parse(payload)], ["Weekly"])
+        self.assertEqual(zai.parse(payload)[0]["windowMinutes"], 24 * 60)
 
     def test_web_searches_requires_positive_limit(self):
         payload = {"data": {"limits": [{"type": "TIME_LIMIT", "unit": 5, "number": 1, "usage": 0, "currentValue": 0}]}}

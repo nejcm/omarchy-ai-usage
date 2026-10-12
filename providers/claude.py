@@ -82,12 +82,12 @@ def plan_label(oauth: dict) -> str:
 
 def parse(payload: dict) -> list:
     metrics = []
-    for key, label in (("five_hour", "Session"), ("seven_day", "Weekly")):
+    for key, label, minutes in (("five_hour", "Session", 5 * 60), ("seven_day", "Weekly", 7 * 24 * 60)):
         bucket = payload.get(key)
         if not isinstance(bucket, dict):
             continue
         metric = common.metric(label, common.percent(bucket.get("utilization")),
-                               common.reset_iso(bucket.get("resets_at")))
+                               common.reset_iso(bucket.get("resets_at")), minutes)
         if metric:
             metrics.append(metric)
     return metrics

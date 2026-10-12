@@ -124,11 +124,11 @@ def is_expired_jwt(token: str) -> bool:
     return exp is not None and exp <= time.time()
 
 
-def metric(label: str, pct: float | None, resets_at: str = "") -> dict | None:
+def metric(label: str, pct: float | None, resets_at: str = "", window_minutes: float | None = None) -> dict | None:
     """A metric, or None when the percentage is missing or unparseable."""
     if pct is None:
         return None
-    return {"label": label, "percent": pct, "resetsAt": resets_at}
+    return {"label": label, "percent": pct, "resetsAt": resets_at, "windowMinutes": window_minutes}
 
 
 def row(

@@ -25,6 +25,7 @@ class AntigravityTests(ProviderCase):
         for metric, expected in zip(row["metrics"], [8.0, 14.0, 0.0, 0.0]):
             self.assertAlmostEqual(metric["percent"], expected, places=6)
         self.assertEqual(row["metrics"][0]["resetsAt"], "2026-08-23T04:25:14Z")
+        self.assertEqual([m["windowMinutes"] for m in row["metrics"]], [300, 10080, 300, 10080])
         self.assertEqual(request.calls[0]["method"], "POST")
         self.assertEqual(request.calls[0]["headers"]["Authorization"], "Bearer SECRET-TOKEN")
         self.assertEqual(request.calls[0]["headers"].get("User-Agent"), "antigravity")

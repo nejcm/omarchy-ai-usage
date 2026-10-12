@@ -117,7 +117,7 @@ def parse(payload: dict) -> list:
             if window is None or percent is None:
                 continue
             label = "Session" if window < SESSION_MAX_MINUTES else "Weekly"
-            buckets.setdefault(label, common.metric(label, percent, common.reset_iso(entry.get("nextResetTime"))))
+            buckets.setdefault(label, common.metric(label, percent, common.reset_iso(entry.get("nextResetTime")), window))
         elif kind == "TIME_LIMIT":
             used, limit = common.number(entry.get("currentValue")), common.number(entry.get("usage"))
             if used is None or limit is None or used < 0 or limit <= 0:

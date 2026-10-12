@@ -97,7 +97,8 @@ def parse(payload: dict) -> list:
                 reset = common.reset_iso(time.time() + float(window["reset_after_seconds"]))
             except (TypeError, ValueError):
                 reset = ""
-        metric = common.metric(label, pct, reset)
+        seconds = common.number(window.get("limit_window_seconds"))
+        metric = common.metric(label, pct, reset, seconds / 60 if seconds and seconds > 0 else None)
         if metric:
             metrics.append(metric)
     return metrics

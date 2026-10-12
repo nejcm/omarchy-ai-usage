@@ -26,6 +26,7 @@ class GrokTests(ProviderCase):
         self.assertEqual([m["percent"] for m in row["metrics"]], [42.0, 20.0])
         self.assertEqual(row["metrics"][0]["resetsAt"], "2026-07-07T21:36:52Z")
         self.assertEqual(row["metrics"][1]["resetsAt"], "2026-07-07T21:36:52Z")
+        self.assertEqual(row["metrics"][0]["windowMinutes"], 7 * 24 * 60)
         self.assertEqual(request.calls[0]["headers"].get("X-XAI-Token-Auth"), "xai-grok-cli")
 
     def test_non_weekly_period_omits_weekly(self):

@@ -66,14 +66,16 @@ def parse(payload: dict) -> list:
     if not isinstance(plan_usage, dict):
         plan_usage = {}
     reset = common.reset_iso(payload.get("billingCycleEnd"))
+    start, end = common.parse_time(payload.get("billingCycleStart")), common.parse_time(payload.get("billingCycleEnd"))
+    minutes = (end - start).total_seconds() / 60 if start and end and end > start else None
     metrics = []
     total = common.percent(plan_usage.get("totalPercentUsed"))
     if total is None:
         total = _derived_total(plan_usage)
     if total is not None:
-        metrics.append(common.metric("Total usage", total, reset))
+        metrics.append(common.metric("Total usage", total, reset, minutes))
     for key, label in (("autoPercentUsed", "Cursor models"), ("apiPercentUsed", "Other models")):
-        metric = common.metric(label, common.percent(plan_usage.get(key)), reset)
+        metric = common.metric(label, common.percent(plan_usage.get(key)), reset, minutes)
         if metric:
             metrics.append(metric)
     return metrics

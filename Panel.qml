@@ -348,6 +348,16 @@ Panel {
                         radius: Style.space(2)
                         color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.12)
                       }
+
+                      Rectangle {
+                        readonly property real elapsed: Model.elapsedFraction(metric.modelData, root.nowMs)
+                        visible: elapsed >= 0
+                        x: Math.min(meter.width - width, Math.max(0, Math.round(meter.width * elapsed) - width / 2))
+                        y: -Style.space(2)
+                        width: Style.space(2)
+                        height: parent.height + Style.space(4)
+                        color: "white"
+                      }
                     }
 
                     Text {

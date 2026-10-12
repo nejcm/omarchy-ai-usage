@@ -252,9 +252,10 @@ check inside the running Omarchy shell.
 
 Provider rows contain `provider`, `name`, `abbrev`, `plan`, `status`, `error`,
 `metrics`, `resetAt`, and `refreshedAt`. Each metric contains `label`,
-`percent`, and `resetsAt`. Percent means usage consumed, clamped to 0–100;
-unavailable percentages are omitted. Reset times use UTC ISO timestamps or an
-empty string when unknown.
+`percent`, `resetsAt`, and `windowMinutes`. Percent means usage consumed, clamped
+to 0–100; unavailable percentages are omitted. Reset times use UTC ISO timestamps
+or an empty string when unknown. `windowMinutes` is the limit window length, or
+`null` when unknown; the panel uses it to mark elapsed time on the meter.
 
 Keep provider differences inside their modules. Avoid new runtime dependencies
 for transport or parsing, preserve existing credentials, and never commit
