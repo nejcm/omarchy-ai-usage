@@ -680,17 +680,17 @@ class ClaudeLockFlowTests(ProviderCase):
         self.assertEqual(json.loads(path.read_text())["claudeAiOauth"]["refreshToken"], "new-refresh")
         self.assertEqual(multiprocessing.active_children(), [])
 
-    def test_ownership_loss_during_temp_write_still_replaces(self):
+    def test_successor_write_during_temp_write_is_preserved(self):
         path = write(self.home, self.AUTH, self.expired())
         lock_path = path.parent / claude.LOCK_NAME
-        successor = {"claudeAiOauth": {"accessToken": "successor", "refreshToken": "successor-refresh"}}
+        successor = {"accessToken": "successor", "refreshToken": "successor-refresh"}
         real_dump = json.dump
 
         def compromise_while_writing(value, handle):
             real_dump(value, handle)
             os.rmdir(lock_path)
             os.mkdir(lock_path)
-            path.write_text(json.dumps(successor))
+            path.write_text(json.dumps({"claudeAiOauth": successor}))
 
         request = FakeRequest({"oauth/token": common.Response(200, {"access_token": "new-token"}),
                                "oauth/usage": common.Response(200, load("claude_usage.json"))})
@@ -698,10 +698,12 @@ class ClaudeLockFlowTests(ProviderCase):
                 mock.patch("providers.claude.os.replace", wraps=os.replace) as replace:
             row = claude.collect(request, self.home, {})
         self.assertEqual(row["status"], common.OK)
-        replace.assert_called_once()
-        self.assertEqual(json.loads(path.read_text())["claudeAiOauth"]["accessToken"], "new-token")
+        replace.assert_not_called()
+        self.assertEqual(json.loads(path.read_text())["claudeAiOauth"], successor)
         self.assertTrue(lock_path.is_dir())
         self.assertEqual(list(path.parent.glob(".credentials.*.tmp")), [])
+        usage = [call for call in request.calls if "oauth/usage" in call["url"]]
+        self.assertEqual(usage[0]["headers"]["Authorization"], "Bearer successor")
 
     def test_locked_reread_failure_aborts_before_post(self):
         write(self.home, self.AUTH, self.expired())

@@ -376,6 +376,9 @@ def persist_rotation(path: str, original: dict, rotated: dict) -> str:
         os.fchmod(handle_fd, 0o600)
         with os.fdopen(handle_fd, "w", encoding="utf-8") as handle:
             json.dump(updated, handle)
+        latest, error = _read_oauth(path)
+        if error or latest != original:
+            return "changed"
         os.replace(tmp_path, path)
     except OSError:
         return "write-failed"
