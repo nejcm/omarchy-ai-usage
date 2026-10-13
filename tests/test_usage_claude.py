@@ -31,6 +31,10 @@ def stream(output, thinking=None, message="msg-1", request="req-1"):
                        "message": {"id": message, "model": "claude-opus-5-5", "usage": usage}}) + "\n"
 
 
+def parse(text, state=None):
+    return usage_claude.parse(text, state or {}, 0)
+
+
 class ClaudeCase(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -66,18 +70,18 @@ class ParserTests(unittest.TestCase):
     def test_usage_substring_prefilter_skips_decoding(self):
         original = json.loads
         with mock.patch.object(usage_claude.json, "loads", side_effect=original) as loads:
-            self.assertEqual(usage_claude.parse(b'{"type":"user","message":{"content":"redacted"}}\n', {}), [])
+            self.assertEqual(parse(b'{"type":"user","message":{"content":"redacted"}}\n', {}), [])
             self.assertEqual(loads.call_count, 0)
-            self.assertEqual(usage_claude.parse(b'{"type":"assistant","usage":{}}\n', {}), [])
+            self.assertEqual(parse(b'{"type":"assistant","usage":{}}\n', {}), [])
             self.assertEqual(loads.call_count, 1)
 
     def test_malformed_and_unknown_lines_are_skipped(self):
-        self.assertEqual(usage_claude.parse(b'{"usage": truncated\n', {}), [])
-        self.assertEqual(usage_claude.parse(b'{"type":"user","usage":{}}\n', {}), [])
-        self.assertEqual(usage_claude.parse(b'{"type":"assistant","message":"usage"}\n', {}), [])
-        self.assertEqual(usage_claude.parse(b'{"type":"assistant","usage":{"input_tokens":1}}\n', {}), [])
+        self.assertEqual(parse(b'{"usage": truncated\n', {}), [])
+        self.assertEqual(parse(b'{"type":"user","usage":{}}\n', {}), [])
+        self.assertEqual(parse(b'{"type":"assistant","message":"usage"}\n', {}), [])
+        self.assertEqual(parse(b'{"type":"assistant","usage":{"input_tokens":1}}\n', {}), [])
         self.assertEqual(
-            usage_claude.parse(b'{"type":"assistant","timestamp":"nope","message":{"id":"m","model":"x","usage":{}}}\n', {}), [])
+            parse(b'{"type":"assistant","timestamp":"nope","message":{"id":"m","model":"x","usage":{}}}\n', {}), [])
 
     def test_invalid_metadata_and_counts_are_skipped(self):
         def line(session="s", model="x", request="r", usage=None):
@@ -89,12 +93,12 @@ class ParserTests(unittest.TestCase):
                      line(usage={"output_tokens": 1e20}), line(usage={"cache_read_input_tokens": "5"}),
                      line(usage={"output_tokens": 1, "output_tokens_details": {"thinking_tokens": -3}})):
             with self.subTest(text=text):
-                self.assertEqual(usage_claude.parse(text.encode() + b"\n", {}), [])
+                self.assertEqual(parse(text.encode() + b"\n", {}), [])
 
     def test_valid_record_with_fractional_count_is_skipped(self):
         record = {"type": "assistant", "timestamp": "2026-10-01T10:00:00.000Z", "sessionId": "s", "requestId": "r",
                   "message": {"id": "m", "model": "x", "usage": {"input_tokens": 1.5, "output_tokens": 1}}}
-        self.assertEqual(usage_claude.parse((json.dumps(record) + "\n").encode(), {}), [])
+        self.assertEqual(parse((json.dumps(record) + "\n").encode(), {}), [])
 
 
 class FixtureTests(ClaudeCase):

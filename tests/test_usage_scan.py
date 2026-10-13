@@ -23,7 +23,7 @@ def event(key, ts=NOW, **fields):
     return json.dumps({"key": key, "ts": ts, **fields}) + "\n"
 
 
-def stub_parse(line, state):
+def stub_parse(line, state, offset):
     record = json.loads(line)
     state["lines"] = state.get("lines", 0) + 1
     return [{"key": record["key"], "ts": record["ts"], "session": record.get("session", ""),
@@ -136,10 +136,10 @@ class StateTests(ScanCase):
         first = self.write("a.jsonl", event("k1") + event("boom", ts=1700000001))
         second = self.write("b.jsonl", event("k2", ts=1700000002))
 
-        def failing(line, state):
+        def failing(line, state, offset):
             if b"boom" in line:
                 raise ValueError("boom")
-            return stub_parse(line, state)
+            return stub_parse(line, state, offset)
 
         budget = first.stat().st_size
         self.sources = [self.source(parse=failing)]
@@ -155,10 +155,10 @@ class StateTests(ScanCase):
         first = self.write("a.jsonl", event("k1") + event("boom", ts=1700000001))
         second = self.write("b.jsonl", event("k2", ts=1700000002))
 
-        def failing(line, state):
+        def failing(line, state, offset):
             if b"boom" in line:
                 raise ValueError("boom")
-            return stub_parse(line, state)
+            return stub_parse(line, state, offset)
 
         self.sources = [self.source(parse=failing)]
         budget = first.stat().st_size
@@ -172,10 +172,10 @@ class StateTests(ScanCase):
         first = self.write("one/a.jsonl", event("k1") + event("boom", ts=1700000001))
         second = self.write("two/b.jsonl", event("k2", ts=1700000002))
 
-        def failing(line, state):
+        def failing(line, state, offset):
             if b"boom" in line:
                 raise ValueError("boom")
-            return stub_parse(line, state)
+            return stub_parse(line, state, offset)
 
         self.sources = [self.source(parse=failing, root=self.logs / "one"), self.source(root=self.logs / "two")]
         budget = first.stat().st_size
@@ -188,10 +188,10 @@ class StateTests(ScanCase):
     def test_failed_file_rolls_back_and_resumes(self):
         path = self.write("a.jsonl", event("k1") + event("boom", ts=1700000001) + event("k2", ts=1700000002))
 
-        def failing(line, state):
+        def failing(line, state, offset):
             if b"boom" in line:
                 raise ValueError("boom")
-            return stub_parse(line, state)
+            return stub_parse(line, state, offset)
 
         self.sources = [self.source(parse=failing)]
         self.assertGreater(self.scan(), 0)
@@ -252,7 +252,7 @@ class StateTests(ScanCase):
             "import json, os, signal, sys\n"
             "sys.path.insert(0, sys.argv[1])\n"
             "import usage_scan\n"
-            "def parse(line, state):\n"
+            "def parse(line, state, offset):\n"
             "    record = json.loads(line)\n"
             "    if record['key'] == 'die':\n"
             "        os.kill(os.getpid(), signal.SIGKILL)\n"

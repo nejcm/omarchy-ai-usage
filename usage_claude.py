@@ -23,7 +23,7 @@ def source(home: str, env: dict) -> usage_scan.Source:
     return usage_scan.Source(ID, (os.path.join(root, "projects", "**", "*.jsonl"),), parse, MERGE)
 
 
-def parse(line: bytes, state: dict) -> list:
+def parse(line: bytes, state: dict, offset: int) -> list:
     """Usage events from one transcript line; keys are global so replays converge."""
     if b'"usage"' not in line:
         return []

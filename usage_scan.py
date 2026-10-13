@@ -95,7 +95,8 @@ def _scan_file(connection, path, metadata, source, budget, moment) -> int:
             for line in _lines(handle, MAX_LINE_BYTES, remaining, progress):
                 if line is None:
                     continue
-                for event in source.parse(line, state) or ():
+                start = progress["offset"] - len(line)  # _lines left progress at the end of this line
+                for event in source.parse(line, state, start) or ():
                     _write_event(connection, source.id, event, source.merge)
     except Exception:
         connection.rollback()
