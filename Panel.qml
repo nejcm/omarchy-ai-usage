@@ -68,7 +68,7 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(340))
-    contentHeight: panel.fittedContentHeight(header.height + Style.space(32) + (root.settingsOpen ? settingsContent.implicitHeight : content.implicitHeight), Math.floor(panel.screenH * 0.6))
+    contentHeight: panel.fittedContentHeight(header.height + Style.space(32) + (tabBar.visible ? tabBar.height : 0) + (root.settingsOpen ? settingsContent.implicitHeight : content.implicitHeight), Math.floor(panel.screenH * 0.6))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -161,8 +161,71 @@ Panel {
           }
         }
 
-        PanelSeparator {
-          foreground: root.contentForeground
+        Column {
+          width: parent.width
+
+          Row {
+            id: tabBar
+            readonly property var options: [
+              { value: "limits", label: "Limits" },
+              { value: "usage", label: "Usage" }
+            ]
+            readonly property string value: root.tab
+            signal changed(string value)
+
+            visible: root.localUsage && !root.settingsOpen
+            spacing: Style.space(16)
+            onChanged: function (value) {
+              root.tab = value
+            }
+
+            Repeater {
+              model: tabBar.options
+
+              delegate: Item {
+                id: tabItem
+                required property var modelData
+                readonly property bool selected: modelData.value === tabBar.value
+                width: tabLabel.implicitWidth
+                height: tabLabel.implicitHeight + Style.space(8)
+                activeFocusOnTab: true
+                Accessible.role: Accessible.PageTab
+                Accessible.name: modelData.label
+                Keys.onReturnPressed: tabBar.changed(modelData.value)
+                Keys.onSpacePressed: tabBar.changed(modelData.value)
+
+                Text {
+                  id: tabLabel
+                  text: tabItem.modelData.label
+                  color: tabItem.selected || tabMouse.containsMouse || tabItem.activeFocus ? root.contentForeground : root.dimForeground
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.body
+                  font.bold: tabItem.selected
+                }
+
+                Rectangle {
+                  anchors.bottom: parent.bottom
+                  width: parent.width
+                  height: 2
+                  visible: tabItem.selected
+                  color: root.contentForeground
+                }
+
+                MouseArea {
+                  id: tabMouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: tabBar.changed(tabItem.modelData.value)
+                }
+              }
+            }
+          }
+
+          PanelSeparator {
+            width: parent.width
+            foreground: root.contentForeground
+          }
         }
 
         Flickable {
@@ -191,21 +254,6 @@ Panel {
             width: scroll.width
             visible: !root.settingsOpen
             spacing: Style.space(16)
-
-            ButtonGroup {
-              visible: root.localUsage
-              width: parent.width
-              options: [
-                { value: "limits", label: "Limits" },
-                { value: "usage", label: "Usage" }
-              ]
-              value: root.tab
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onChanged: function (value) {
-                root.tab = value
-              }
-            }
 
             Column {
               id: limitsTab

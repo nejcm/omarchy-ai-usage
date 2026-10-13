@@ -8,7 +8,6 @@ Column {
   required property var hostWidget
   property color foreground: Color.foreground
   property string fontFamily: Style.font.family
-  property bool breakdownOpen: false
   readonly property var usage: hostWidget ? hostWidget.usage : null
   readonly property string usageWindowName: Model.usageWindowName(hostWidget ? hostWidget.setting("usageWindow", Model.SETTING_DEFAULTS.usageWindow) : Model.SETTING_DEFAULTS.usageWindow)
   readonly property var usageWindow: usage && usage.windows ? (usage.windows[usageWindowName] || usage.windows["7d"] || null) : null
@@ -31,7 +30,7 @@ Column {
     return breakdown ? Number(breakdown.input) + Number(breakdown.cacheRead) + Number(breakdown.cacheWrite) + Number(breakdown.output) + Number(breakdown.reasoning) : 0
   }
   readonly property color dimForeground: Qt.darker(foreground, 1.5)
-  spacing: Style.space(12)
+  spacing: Style.space(20)
 
   component SectionLabel: Text {
     color: root.foreground
@@ -341,21 +340,12 @@ Column {
     }
   }
 
-  Button {
+  Column {
     visible: root.usageFound
     width: parent.width
-    leftAlign: true
-    text: (root.breakdownOpen ? "▾ " : "▸ ") + "Token breakdown"
-    foreground: root.foreground
-    fontFamily: root.fontFamily
-    focusable: true
-    onClicked: root.breakdownOpen = !root.breakdownOpen
-  }
+    spacing: Style.space(6)
 
-  Column {
-    visible: root.breakdownOpen && root.usageFound
-    width: parent.width
-    spacing: Style.space(4)
+    SectionLabel { text: "Token breakdown" }
 
     Repeater {
       model: [
