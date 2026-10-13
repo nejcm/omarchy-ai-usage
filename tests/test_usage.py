@@ -923,10 +923,14 @@ class SharedTests(unittest.TestCase):
         script = source + "\nconst qml = " + json.dumps((ROOT / "BarWidget.qml").read_text()) + ";" + """
 const assert = require("node:assert/strict");
 const root = {enabledProviders:[], loadedOnce:false, refreshPending:false,
-  refreshing:false, lastAttemptMs:0, rows:[], script:"/plugin path/usage.py",
+  refreshing:false, lastAttemptMs:0, cachedAtMs:0, cacheChecked:false, refreshMs:300000, rows:[], refreshedAt:"",
+  script:"/plugin path/usage.py",
+  get displayRows() { return Model.orderedRows(this.rows, this.enabledProviders); },
+  Qt:{callLater(fn) { fn(); }},
+  cacheFile:{setText(text) { root.cachedText = text; }},
   checkWarnings(rows) { this.warningRows = rows; }};
 const process = {running:false};
-const Model = {orderedRows, mergeRows, markStale};
+const Model = {orderedRows, mergeRows, markStale, restoreCache};
 function method(name) {
   const start = qml.indexOf("  function " + name + "(");
   const end = qml.indexOf("\\n  }", start) + 4;
@@ -957,6 +961,91 @@ assert.equal(root.refreshPending, false);
 assert.deepEqual(process.command, ["python3", "/plugin path/usage.py", "--provider", "codex"]);
 method("applyOutput")("invalid json");
 assert.equal(root.rows[0].status, "stale");
+assert.equal(root.cacheChecked, true);
+const cached = JSON.parse(root.cachedText);
+assert.deepEqual(cached.rows.map(row => row.provider), ["codex"]);
+assert.equal(cached.refreshedAt, "");
+root.refreshCalls = 0;
+root.refresh = function() { root.refreshCalls += 1; };
+const stale = method("refreshIfStale");
+root.refreshIfStale = stale;
+root.lastAttemptMs = 0;
+root.cachedAtMs = Date.now();
+stale();
+assert.equal(root.refreshCalls, 0);
+root.cachedAtMs = Date.now() - 600000;
+stale();
+assert.equal(root.refreshCalls, 1);
+root.lastAttemptMs = Date.now();
+root.cachedAtMs = 0;
+stale();
+assert.equal(root.refreshCalls, 1);
+const restore = method("restoreCache");
+root.cachedAtMs = 0;
+root.refreshedAt = "";
+root.cacheChecked = false;
+restore(JSON.stringify({refreshedAt:"2020-01-01T00:00:00Z",
+  rows:[{provider:"codex", status:"ok", metrics:[]}]}));
+assert.equal(root.cacheChecked, true);
+assert.equal(root.rows[0].status, "stale");
+assert.equal(root.cachedAtMs, 0);
+root.rows = [];
+root.cacheChecked = false;
+restore("bad json");
+assert.equal(root.cacheChecked, true);
+assert.deepEqual(root.rows, []);
+assert.equal(root.cachedAtMs, 0);
+restore(JSON.stringify({refreshedAt:"2020-01-01T00:00:00Z",
+  rows:[{provider:"codex", status:"ok", metrics:[]}]}));
+assert.deepEqual(root.rows.map(row => row.provider), ["codex"]);
+assert.equal(root.refreshedAt, "2020-01-01T00:00:00Z");
+assert.equal(root.cachedAtMs, Date.parse("2020-01-01T00:00:00Z"));
+function handler(name) {
+  const start = qml.indexOf("  " + name + ": {");
+  const end = qml.indexOf("\\n  }", start) + 4;
+  assert(start >= 0 && end > start);
+  return new Function("root", "usageProcess", "Model",
+    "with (root) { return " + qml.slice(start, end).replace(name + ": {", "(function() {") + ") }")(root, process, Model);
+}
+root.rows = [];
+root.enabledProviders = ["codex"];
+root.lastAttemptMs = 0;
+root.loadedOnce = false;
+restore(JSON.stringify({refreshedAt:"2020-01-01T00:00:00Z",
+  rows:[{provider:"claude", status:"ok", metrics:[]}]}));
+assert.deepEqual(root.rows.map(row => row.provider), ["claude"]);
+root.enabledProviders = ["codex", "claude"];
+handler("onSelectionKeyChanged")();
+assert.deepEqual(root.rows.map(row => row.provider), ["claude"]);
+root.refreshCalls = 0;
+root.lastAttemptMs = 0;
+root.loadedOnce = false;
+root.rows = [{provider:"codex", status:"ok", metrics:[]}];
+root.enabledProviders = ["codex", "cursor"];
+root.cachedAtMs = Date.now();
+stale();
+assert.equal(root.refreshCalls, 1);
+root.refreshCalls = 0;
+root.enabledProviders = ["codex"];
+stale();
+assert.equal(root.refreshCalls, 0);
+root.rows = [{provider:"codex", status:"ok", metrics:[]}, {provider:"claude", status:"ok", metrics:[]}];
+root.enabledProviders = ["codex", "claude"];
+root.cacheChecked = true;
+handler("onSelectionKeyChanged")();
+assert.equal(root.refreshCalls, 0);
+root.enabledProviders = ["claude"];
+handler("onSelectionKeyChanged")();
+assert.equal(root.refreshCalls, 0);
+root.refreshCalls = 0;
+root.rows = [];
+root.enabledProviders = ["codex"];
+restore(JSON.stringify({refreshedAt:new Date().toISOString(),
+  rows:[{provider:"codex", status:"ok", metrics:[]}]}));
+assert(root.cachedAtMs > 0);
+root.enabledProviders = ["codex", "cursor"];
+handler("onSelectionKeyChanged")();
+assert.equal(root.refreshCalls, 1);
 """
         subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
 
@@ -1125,6 +1214,34 @@ assert.deepEqual(moveItem(saved.providerOrder, "claude", 0), ["claude", "cursor"
 const seqOrder = {0: "cursor", 1: "codex", 2: "claude", length: 3};
 assert.deepEqual(moveItem(seqOrder, "claude", 0), ["claude", "cursor", "codex"]);
 console.log("OK");
+"""
+        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_model_restore_cache(self):
+        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        script = source + """
+const assert = require("node:assert/strict");
+const rows = [{provider:"claude", status:"ok", metrics:[{percent:42}]},
+  {provider:"codex", status:"ok", metrics:[{percent:8}]},
+  {provider:"cursor", status:"ok", metrics:[{percent:2}]}];
+const good = JSON.stringify({refreshedAt:"2020-01-01T00:00:00Z", rows});
+const restored = restoreCache(good);
+assert.deepEqual(restored.rows.map(row => row.provider), ["claude", "codex", "cursor"]);
+assert.equal(restored.rows[0].metrics[0].percent, 42);
+assert.equal(restored.refreshedAt, "2020-01-01T00:00:00Z");
+assert.equal(restored.refreshedMs, Date.parse("2020-01-01T00:00:00Z"));
+assert.deepEqual(restoreCache(JSON.stringify({refreshedAt:"2020-01-01T00:00:00Z", rows:[null, {}, rows[0]]})).rows, [rows[0]]);
+assert.equal(restoreCache(""), null);
+assert.equal(restoreCache("not json"), null);
+assert.equal(restoreCache("null"), null);
+assert.equal(restoreCache(JSON.stringify({rows})), null);
+assert.equal(restoreCache(JSON.stringify({refreshedAt:"2026-10-12T10:00:00Z"})), null);
+assert.equal(restoreCache(JSON.stringify({refreshedAt:"sometime", rows})), null);
+assert.equal(restoreCache(JSON.stringify({refreshedAt:"2099-01-01T00:00:00Z", rows})), null);
+assert.equal(restoreCache(JSON.stringify({refreshedAt:123, rows})), null);
+assert.equal(restoreCache(JSON.stringify({refreshedAt:"2026-10-12T10:00:00Z", rows:"bad"})), null);
+assert.equal(restoreCache(JSON.stringify({refreshedAt:"2026-10-12T10:00:00Z", rows:{}})), null);
 """
         subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
 

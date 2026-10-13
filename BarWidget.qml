@@ -15,6 +15,8 @@ BarWidget {
   property bool refreshing: false
   property bool loadedOnce: false
   property double lastAttemptMs: 0
+  property double cachedAtMs: 0
+  property bool cacheChecked: false
   property bool refreshPending: false
 
   readonly property var providerOrder: Model.providerOrder(setting("providerOrder", Model.SETTING_DEFAULTS.providerOrder))
@@ -28,6 +30,7 @@ BarWidget {
   readonly property int warningThreshold: Model.warningThreshold(setting("warningThreshold", Model.SETTING_DEFAULTS.warningThreshold))
   readonly property int refreshMs: Model.refreshSeconds(setting("refreshIntervalSec", Model.SETTING_DEFAULTS.refreshIntervalSec)) * 1000
   readonly property string script: Qt.resolvedUrl("usage.py").toString().replace("file://", "")
+  readonly property string cachePath: (Quickshell.env("XDG_CACHE_HOME") || Quickshell.env("HOME") + "/.cache") + "/omarchy-ai-usage.json"
 
   function writeSettings(next) {
     if (JSON.stringify(next) === JSON.stringify(root.settings)) return
@@ -89,13 +92,27 @@ BarWidget {
     usageProcess.running = true
   }
 
-  // Timer and panel-open refreshes are interval-gated from the last attempt.
+  function restoreCache(text) {
+    var cached = root.rows.length === 0 ? Model.restoreCache(text) : null
+    if (cached && cached.rows.length > 0) {
+      root.rows = cached.rows
+      root.refreshedAt = cached.refreshedAt
+      root.cachedAtMs = cached.refreshedMs
+    }
+    root.cacheChecked = true
+  }
+
+  // Timer and panel-open refreshes are interval-gated from the last attempt or a fully covered cache.
   function refreshIfStale() {
-    if (lastAttemptMs === 0 || Date.now() - lastAttemptMs >= refreshMs) refresh()
+    var cachedMs = displayRows.length === enabledProviders.length ? cachedAtMs : 0
+    var lastMs = Math.max(lastAttemptMs, cachedMs)
+    if (lastMs === 0 || Date.now() - lastMs >= refreshMs) refresh()
   }
 
   function applyOutput(text) {
     refreshing = false
+    // A cache write drops any in-flight read without emitting loaded/loadFailed.
+    cacheChecked = true
     var parsed = null
     try {
       parsed = JSON.parse(String(text || ""))
@@ -112,6 +129,7 @@ BarWidget {
     root.rows = Model.mergeRows(root.rows, incoming)
     if (anyOk && parsed.refreshedAt) root.refreshedAt = parsed.refreshedAt
     root.loadedOnce = true
+    cacheFile.setText(JSON.stringify({ refreshedAt: root.refreshedAt, rows: root.rows }))
     root.checkWarnings(incoming)
   }
 
@@ -119,6 +137,8 @@ BarWidget {
     root.rows = Model.orderedRows(root.rows, root.enabledProviders)
     if (root.enabledProviders.length === 0) root.loadedOnce = true
     if (root.lastAttemptMs > 0 || root.loadedOnce) Qt.callLater(root.refresh)
+    // Newly enabled providers fetch only if the fresh cache does not cover them.
+    else if (root.cacheChecked) Qt.callLater(root.refreshIfStale)
   }
 
   Component.onCompleted: if (root.enabledProviders.length === 0) root.loadedOnce = true
@@ -178,10 +198,19 @@ BarWidget {
     onTriggered: usageProcess.running = false
   }
 
+  FileView {
+    id: cacheFile
+    path: root.cachePath
+    atomicWrites: true
+    printErrors: false
+    onLoaded: root.restoreCache(text())
+    onLoadFailed: root.cacheChecked = true
+  }
+
   Timer {
     interval: root.refreshMs
     repeat: true
-    running: root.enabledProviders.length > 0
+    running: root.cacheChecked && root.enabledProviders.length > 0
     triggeredOnStart: true
     onTriggered: root.refreshIfStale()
   }
@@ -205,7 +234,7 @@ BarWidget {
     labelVisible: root.navbarRows.length === 0
     hasVisualContent: true
     fixedWidth: root.navbarRows.length === 0 ? -1 : barRow.implicitWidth + scaledHorizontalMargin * 2
-    dimmed: !root.loadedOnce
+    dimmed: !root.loadedOnce && root.displayRows.length === 0
     tooltipText: Model.barTooltip(root.displayMode)
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.LeftButton) root.togglePanel()
