@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS events(
 );
 """
 
-Source = namedtuple("Source", "id patterns parse")
+Source = namedtuple("Source", "id patterns parse merge", defaults=(None,))
 
 
 def cache_directory(home: str, env: dict) -> str:
@@ -96,7 +96,7 @@ def _scan_file(connection, path, metadata, source, budget, moment) -> int:
                 if line is None:
                     continue
                 for event in source.parse(line, state) or ():
-                    _write_event(connection, source.id, event)
+                    _write_event(connection, source.id, event, source.merge)
     except Exception:
         connection.rollback()
         if budget - remaining[0]:
@@ -175,10 +175,11 @@ def _forget_missing(connection) -> None:
     connection.commit()
 
 
-def _write_event(connection, provider, event) -> None:
-    connection.execute(
-        "INSERT OR REPLACE INTO events(key, ts, provider, session, model, input, cache_read, cache_write, output, reasoning)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?)",
-        (event["key"], event["ts"], provider, event.get("session") or "", event.get("model") or "",
-         int(event.get("input") or 0), int(event.get("cache_read") or 0), int(event.get("cache_write") or 0),
-         int(event.get("output") or 0), int(event.get("reasoning") or 0)))
+def _write_event(connection, provider, event, merge) -> None:
+    values = (event["key"], event["ts"], provider, event.get("session") or "", event.get("model") or "",
+              int(event.get("input") or 0), int(event.get("cache_read") or 0), int(event.get("cache_write") or 0),
+              int(event.get("output") or 0), int(event.get("reasoning") or 0))
+    verb = "INSERT OR REPLACE INTO events" if merge is None else "INSERT INTO events"
+    suffix = "" if merge is None else " " + merge
+    connection.execute(verb + "(key, ts, provider, session, model, input, cache_read, cache_write, output, reasoning)"
+                       " VALUES(?,?,?,?,?,?,?,?,?,?)" + suffix, values)
