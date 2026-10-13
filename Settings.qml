@@ -250,6 +250,24 @@ Column {
     onClicked: root.hostWidget.saveSetting("desktopNotifications", !checked)
   }
 
+  PanelSeparator {
+    foreground: root.foreground
+  }
+  Label {
+    text: "Local usage"
+    font.bold: true
+  }
+  Toggle {
+    width: parent.width
+    label: "Local token usage"
+    titleSize: Style.font.body
+    description: "Scan local agent logs for the Usage tab in the panel."
+    checked: root.hostWidget.localUsage
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+    onClicked: root.hostWidget.saveSetting("localUsage", !checked)
+  }
+
   Button {
     visible: root.hostWidget && Model.anyNeedsSignIn(root.hostWidget.rows)
     text: "Troubleshooting"

@@ -23,8 +23,13 @@ var SETTING_DEFAULTS = {
   displayMode: "used",
   warningThreshold: 80,
   colorWarnings: true,
-  desktopNotifications: false
+  desktopNotifications: false,
+  localUsage: true,
+  usageWindow: "7d"
 }
+var USAGE_WINDOWS = ["today", "7d", "30d"]
+var USAGE_WINDOW_DAYS = { today: 1, "7d": 7, "30d": 30 }
+var USAGE_PROVIDER_COLORS = { claude: "#d97757", codex: "#10a37f", opencode: "#8b5cf6" }
 
 function providerList(value) {
   return value && typeof value === "object" && typeof value.length === "number" ? Array.prototype.slice.call(value) : []
@@ -375,4 +380,70 @@ function clockText(iso) {
   var hours = date.getHours()
   var minutes = date.getMinutes()
   return (hours < 10 ? "0" : "") + hours + ":" + (minutes < 10 ? "0" : "") + minutes
+}
+
+function providerColor(provider) {
+  return USAGE_PROVIDER_COLORS[provider] || "#94a3b8"
+}
+
+function compactNumber(value) {
+  var number = Number(value)
+  if (!isFinite(number) || number <= 0) return "0"
+  var units = [[1e9, "B"], [1e6, "M"], [1e3, "K"]]
+  for (var i = 0; i < units.length; i++) {
+    if (number >= units[i][0]) {
+      var scaled = number / units[i][0]
+      return (scaled >= 100 ? String(Math.round(scaled)) : String(Math.round(scaled * 10) / 10)) + units[i][1]
+    }
+  }
+  return String(Math.round(number))
+}
+
+function dayProviderTokens(day, provider) {
+  if (!day || !day.providers) return 0
+  var value = Number(day.providers[provider])
+  return isFinite(value) && value > 0 ? value : 0
+}
+
+function providerIds(window) {
+  var out = []
+  var list = window && window.providers ? window.providers : []
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && typeof list[i].id === "string") out.push(list[i].id)
+  }
+  return out
+}
+
+function dayMax(days, ids) {
+  var max = 0
+  for (var i = 0; i < days.length; i++) {
+    var total = 0
+    for (var j = 0; j < ids.length; j++) total += dayProviderTokens(days[i], ids[j])
+    if (total > max) max = total
+  }
+  return max
+}
+
+function stackOffset(day, ids, index) {
+  var total = 0
+  for (var i = 0; i < index; i++) total += dayProviderTokens(day, ids[i])
+  return total
+}
+
+function share(value, total) {
+  return total > 0 ? Math.round(100 * Number(value) / total) + "%" : "0%"
+}
+
+function usageFooter(name) {
+  var days = USAGE_WINDOW_DAYS[name] || 7
+  return days === 1 ? "Local logs \u00b7 today" : "Local logs \u00b7 last " + days + " days"
+}
+
+function usageWindowName(value) {
+  return USAGE_WINDOWS.indexOf(value) >= 0 ? value : SETTING_DEFAULTS.usageWindow
+}
+
+function dayLabel(iso) {
+  var parts = String(iso || "").split("-")
+  return parts.length === 3 ? Number(parts[1]) + "/" + Number(parts[2]) : ""
 }

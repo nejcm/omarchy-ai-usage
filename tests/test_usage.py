@@ -917,6 +917,139 @@ class SharedTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    @unittest.skipUnless(Path("/usr/lib/qt6/bin/qmltestrunner").exists(), "Qt 6 QML test runner not installed")
+    def test_qml_local_usage_toggle(self):
+        result = subprocess.run(
+            ["/usr/lib/qt6/bin/qmltestrunner", "-import", str(ROOT / "tests/qml-stubs"),
+             "-input", str(ROOT / "tests/tst_local_usage.qml"), "-o", "-,txt"],
+            env={**os.environ, "QT_QPA_PLATFORM": "offscreen", "QT_QPA_PLATFORMTHEME": "",
+                 "QT_QUICK_BACKEND": "software", "QT_LOGGING_TO_CONSOLE": "1"},
+            capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_widget_local_usage_process(self):
+        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        script = source + "\nconst qml = " + json.dumps((ROOT / "BarWidget.qml").read_text()) + \
+            ";\nconst panelQml = " + json.dumps((ROOT / "Panel.qml").read_text()) + ";" + """
+const assert = require("node:assert/strict");
+const Model = {orderedRows: orderedRows};
+const root = {localUsage:false, enabledProviders:["claude", "codex"], script:"/plugin path/usage.py",
+  usage:null, usagePending:false, usageSelectionKey:"", refreshing:false, refreshPending:false, rows:[],
+  lastAttemptMs:0, loadedOnce:false, cacheChecked:false, selectionKey:"claude,codex",
+  Qt:{callLater(fn) { fn(); }}, refreshCalls:0, staleCalls:0};
+root.refresh = function() { root.refreshCalls += 1; };
+root.refreshIfStale = function() { root.staleCalls += 1; };
+const localUsageProcess = {running:false, command:null};
+function method(name) {
+  const start = qml.indexOf("  function " + name + "(");
+  const end = qml.indexOf("\\n  }", start) + 4;
+  assert(start >= 0 && end > start);
+  return new Function("root", "localUsageProcess", "Model",
+    "with (root) { return (" + qml.slice(start, end) + ") }")(root, localUsageProcess, Model);
+}
+const refreshUsage = method("refreshUsage");
+refreshUsage();
+assert.equal(localUsageProcess.running, false);
+assert.equal(localUsageProcess.command, null);
+root.localUsage = true;
+refreshUsage();
+assert.deepEqual(localUsageProcess.command,
+  ["python3", "/plugin path/usage.py", "--usage", "--provider", "claude", "--provider", "codex"]);
+assert.equal(localUsageProcess.running, true);
+assert.equal(root.usageSelectionKey, "claude,codex");
+refreshUsage();
+assert.equal(root.usagePending, true);
+localUsageProcess.running = false;
+root.usagePending = false;
+root.enabledProviders = [];
+refreshUsage();
+assert.equal(localUsageProcess.running, false);
+root.enabledProviders = ["claude", "codex"];
+const applyUsageOutput = method("applyUsageOutput");
+applyUsageOutput(JSON.stringify({usage:{scanning:false, windows:{"7d":{tokens:5}}}}));
+assert.deepEqual(root.usage, {scanning:false, windows:{"7d":{tokens:5}}});
+applyUsageOutput("bad json");
+assert.deepEqual(root.usage, {scanning:false, windows:{"7d":{tokens:5}}});
+root.selectionKey = "claude";
+applyUsageOutput(JSON.stringify({usage:{scanning:false, windows:{"7d":{tokens:99}}}}));
+assert.deepEqual(root.usage, {scanning:false, windows:{"7d":{tokens:5}}});
+root.usageSelectionKey = "claude";
+applyUsageOutput(JSON.stringify({usage:{scanning:false, windows:{"7d":{tokens:7}}}}));
+assert.deepEqual(root.usage, {scanning:false, windows:{"7d":{tokens:7}}});
+root.refreshUsage = function() { root.refreshUsageCalls = (root.refreshUsageCalls || 0) + 1; };
+function statement(marker) {
+  const start = qml.indexOf(marker);
+  assert(start >= 0);
+  const end = qml.indexOf("\\n", start);
+  const body = qml.slice(start + marker.length, end);
+  const wrapper = new Function("root", "localUsageProcess", "Model",
+    "with (root) { return (function() { " + body + " }) }");
+  return wrapper(root, localUsageProcess, Model);
+}
+const localUsageChanged = statement("  onLocalUsageChanged: ");
+localUsageProcess.running = true;
+root.localUsage = true;
+localUsageChanged();
+assert.equal(localUsageProcess.running, true);
+root.localUsage = false;
+localUsageChanged();
+assert.equal(localUsageProcess.running, false);
+function handler(name) {
+  const start = qml.indexOf("  " + name + ": {");
+  assert(start >= 0);
+  const open = qml.indexOf("{", start) + 1;
+  const end = qml.indexOf("\\n  }", open);
+  assert(end > open);
+  return new Function("root", "localUsageProcess", "Model",
+    "with (root) { return (function() {" + qml.slice(open, end) + "}) }")(root, localUsageProcess, Model);
+}
+const selectionChanged = handler("onSelectionKeyChanged");
+root.localUsage = true;
+root.lastAttemptMs = 1;
+root.usage = {scanning:false};
+root.selectionKey = "codex";
+localUsageProcess.running = true;
+selectionChanged();
+assert.equal(root.usage, null);
+assert.equal(localUsageProcess.running, false);
+assert.equal(root.usagePending, true);
+assert.equal(root.refreshCalls, 1);
+root.usage = {scanning:false};
+root.usagePending = false;
+localUsageProcess.running = false;
+const starts = root.refreshUsageCalls || 0;
+selectionChanged();
+assert.equal(root.usage, null);
+assert.equal(root.usagePending, false);
+assert.equal(root.refreshUsageCalls, starts + 1);
+function quotaExited() {
+  const marker = qml.indexOf("  onExited: function(");
+  assert(marker >= 0);
+  const start = marker + "  onExited: ".length;
+  const end = qml.indexOf("\\n    }", start) + 6;
+  assert(end > start);
+  return new Function("root", "localUsageProcess", "Model",
+    "with (root) { return (" + qml.slice(start, end) + ") }")(root, localUsageProcess, Model);
+}
+quotaExited()(0, 0);
+assert.equal(root.refreshUsageCalls, starts + 2);
+const saved = [];
+const panelRoot = {hostWidget: {saveSetting(name, value) { saved.push([name, value]); }}};
+const selectorMarker = panelQml.indexOf('{ value: "today"');
+assert(selectorMarker >= 0);
+const marker = panelQml.indexOf("onChanged: function (value) {", selectorMarker);
+assert(marker >= 0);
+const endMarker = "\\n                }";
+const end = panelQml.indexOf(endMarker, marker) + endMarker.length;
+assert(end > marker);
+new Function("root", "with (root) { return (" + panelQml.slice(marker + "onChanged: ".length, end) + ") }")(panelRoot)("30d");
+assert.deepEqual(saved, [["usageWindow", "30d"]]);
+"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_widget_collection_selection_and_late_output(self):
         source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
@@ -929,7 +1062,9 @@ const root = {enabledProviders:[], loadedOnce:false, refreshPending:false,
   Qt:{callLater(fn) { fn(); }},
   cacheFile:{setText(text) { root.cachedText = text; }},
   checkWarnings(rows) { this.warningRows = rows; }};
+root.refreshUsage = function() { root.usageCalls = (root.usageCalls || 0) + 1; };
 const process = {running:false};
+const localUsageProcess = {running:false};
 const Model = {orderedRows, mergeRows, markStale, restoreCache};
 function method(name) {
   const start = qml.indexOf("  function " + name + "(");
@@ -1004,8 +1139,8 @@ function handler(name) {
   const start = qml.indexOf("  " + name + ": {");
   const end = qml.indexOf("\\n  }", start) + 4;
   assert(start >= 0 && end > start);
-  return new Function("root", "usageProcess", "Model",
-    "with (root) { return " + qml.slice(start, end).replace(name + ": {", "(function() {") + ") }")(root, process, Model);
+  return new Function("root", "usageProcess", "localUsageProcess", "Model",
+    "with (root) { return " + qml.slice(start, end).replace(name + ": {", "(function() {") + ") }")(root, process, localUsageProcess, Model);
 }
 root.rows = [];
 root.enabledProviders = ["codex"];
