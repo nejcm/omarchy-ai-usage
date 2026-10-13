@@ -306,6 +306,10 @@ Item {
       return panelLoader.item
     }
 
+    function usageTab() {
+      return harness.find(panel(), function(item) { return item.usageMessage !== undefined })
+    }
+
     function windowSelector() {
       return harness.find(panel(), function(item) {
         return item.options !== undefined && item.options.length > 0 && item.options[0].value === "today"
@@ -324,6 +328,7 @@ Item {
       panelHost.saved = []
       panelLoader.setSource(Qt.resolvedUrl("../Panel.qml"), { hostWidget: panelHost })
       verify(panel() !== null)
+      verify(usageTab() !== null)
       verify(windowSelector() !== null)
       verify(tabSelector() !== null)
     }
@@ -369,15 +374,15 @@ Item {
       panelHost.localUsage = true
       panelHost.enabledProviders = ["claude"]
       panelHost.usage = { scanning: false, windows: { "30d": { providers: [], models: [] } } }
-      compare(panel().usageFound, false)
-      compare(panel().usageMessage, "No local usage found")
+      compare(usageTab().usageFound, false)
+      compare(usageTab().usageMessage, "No local usage found")
       panelHost.usage = { scanning: false, windows: { "30d": { providers: [{ id: "claude", tokens: 5 }] } } }
-      compare(panel().usageFound, true)
-      compare(panel().usageMessage, "")
+      compare(usageTab().usageFound, true)
+      compare(usageTab().usageMessage, "")
       panelHost.usage = { scanning: true, windows: {} }
-      compare(panel().usageMessage, "Scanning local logs…")
+      compare(usageTab().usageMessage, "Scanning local logs…")
       panelHost.enabledProviders = []
-      compare(panel().usageMessage, "No providers enabled")
+      compare(usageTab().usageMessage, "No providers enabled")
       panelHost.enabledProviders = ["claude"]
       panelHost.usage = { scanning: false, windows: {} }
     }

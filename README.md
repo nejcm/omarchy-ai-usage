@@ -220,9 +220,15 @@ omarchy plugin remove io.github.nejcm.ai-usage
 | `BarWidget.qml` | Collector process, cached readings, settings persistence, notifications, and bar rendering |
 | `Panel.qml` | Usage panel, navigation, reset countdowns, and scrolling |
 | `Settings.qml` | Provider controls and display/notification preferences |
+| `LocalUsage.qml` | Usage tab: local token, tool, and model totals |
 | `Model.js` | Shared formatting, provider selection, cache merging, and warning-period logic |
 | `usage.py` | One-shot collector, CLI, and shared HTTP transport |
-| `providers/` | Provider-specific credential readers and response parsers |
+| `usage_scan.py` | Incremental local-log scan into the SQLite usage cache |
+| `usage_claude.py` | Claude Code transcript source for the usage scan |
+| `usage_codex.py` | Codex session-rollout source for the usage scan |
+| `usage_opencode.py` | OpenCode database source for the usage scan |
+| `usage_report.py` | Aggregates the usage cache into windowed token and model totals |
+| `providers/` | Quota collection only: provider-specific credential readers and response parsers (the usage sources reuse its path and time helpers) |
 | `tests/` | Offline tests and redacted provider fixtures |
 | `assets/` | Provider logos, including white variants for dark backgrounds |
 
