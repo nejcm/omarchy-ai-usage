@@ -12,8 +12,8 @@ from unittest import mock
 
 from support import FIXTURES  # noqa: E402
 
-import usage_claude  # noqa: E402
-import usage_scan  # noqa: E402
+import local_usage.claude  # noqa: E402
+import local_usage.scan  # noqa: E402
 
 NOW = datetime(2026, 10, 2, tzinfo=timezone.utc).timestamp()
 
@@ -32,7 +32,7 @@ def stream(output, thinking=None, message="msg-1", request="req-1"):
 
 
 def parse(text, state=None):
-    return usage_claude.parse(text, state or {}, 0)
+    return local_usage.claude.parse(text, state or {}, 0)
 
 
 class ClaudeCase(unittest.TestCase):
@@ -41,7 +41,7 @@ class ClaudeCase(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.home = Path(temporary.name)
         self.env = {"XDG_CACHE_HOME": str(self.home / "cache")}
-        self.connection = usage_scan.open_database(usage_scan.database_path(str(self.home), self.env))
+        self.connection = local_usage.scan.open_database(local_usage.scan.database_path(str(self.home), self.env))
         self.addCleanup(self.connection.close)
 
     def transcript(self, name, text):
@@ -58,7 +58,7 @@ class ClaudeCase(unittest.TestCase):
         os.utime(path, (NOW, NOW))
 
     def scan(self):
-        return usage_scan.scan(self.connection, [usage_claude.source(str(self.home), self.env)], now=NOW)
+        return local_usage.scan.scan(self.connection, [local_usage.claude.source(str(self.home), self.env)], now=NOW)
 
     def rows(self):
         return self.connection.execute(
@@ -69,7 +69,7 @@ class ClaudeCase(unittest.TestCase):
 class ParserTests(unittest.TestCase):
     def test_usage_substring_prefilter_skips_decoding(self):
         original = json.loads
-        with mock.patch.object(usage_claude.json, "loads", side_effect=original) as loads:
+        with mock.patch.object(local_usage.claude.json, "loads", side_effect=original) as loads:
             self.assertEqual(parse(b'{"type":"user","message":{"content":"redacted"}}\n', {}), [])
             self.assertEqual(loads.call_count, 0)
             self.assertEqual(parse(b'{"type":"assistant","usage":{}}\n', {}), [])
@@ -183,10 +183,10 @@ class FixtureTests(ClaudeCase):
 
 class SourceTests(unittest.TestCase):
     def test_source_follows_config_dir(self):
-        default = usage_claude.source("/home/x", {})
+        default = local_usage.claude.source("/home/x", {})
         self.assertEqual(default.id, "claude")
         self.assertEqual(default.patterns, ("/home/x/.claude/projects/**/*.jsonl",))
-        custom = usage_claude.source("/home/x", {"CLAUDE_CONFIG_DIR": "/custom"})
+        custom = local_usage.claude.source("/home/x", {"CLAUDE_CONFIG_DIR": "/custom"})
         self.assertEqual(custom.patterns, ("/custom/projects/**/*.jsonl",))
 
 

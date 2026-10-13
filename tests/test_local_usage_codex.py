@@ -11,8 +11,8 @@ from pathlib import Path
 
 from support import FIXTURES  # noqa: E402
 
-import usage_codex  # noqa: E402
-import usage_scan  # noqa: E402
+import local_usage.codex  # noqa: E402
+import local_usage.scan  # noqa: E402
 
 NOW = datetime(2026, 10, 2, tzinfo=timezone.utc).timestamp()
 
@@ -35,7 +35,7 @@ def line_offsets(name):
 
 def parse(record, state, offset=0):
     line = record if isinstance(record, bytes) else json.dumps(record).encode()
-    return usage_codex.parse(line + b"\n", state, offset)
+    return local_usage.codex.parse(line + b"\n", state, offset)
 
 
 class CodexCase(unittest.TestCase):
@@ -44,7 +44,7 @@ class CodexCase(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.home = Path(temporary.name)
         self.env = {"XDG_CACHE_HOME": str(self.home / "cache")}
-        self.connection = usage_scan.open_database(usage_scan.database_path(str(self.home), self.env))
+        self.connection = local_usage.scan.open_database(local_usage.scan.database_path(str(self.home), self.env))
         self.addCleanup(self.connection.close)
 
     def install(self, name, target="sessions/2026/10/01/session.jsonl"):
@@ -55,7 +55,7 @@ class CodexCase(unittest.TestCase):
         return path
 
     def scan(self):
-        return usage_scan.scan(self.connection, [usage_codex.source(str(self.home), self.env)], now=NOW)
+        return local_usage.scan.scan(self.connection, [local_usage.codex.source(str(self.home), self.env)], now=NOW)
 
     def rows(self):
         return self.connection.execute(
@@ -186,11 +186,11 @@ class ParserTests(unittest.TestCase):
 
 class SourceTests(unittest.TestCase):
     def test_source_follows_codex_home(self):
-        default = usage_codex.source("/home/x", {})
+        default = local_usage.codex.source("/home/x", {})
         self.assertEqual(default.id, "codex")
         self.assertEqual(default.patterns, ("/home/x/.codex/sessions/**/*.jsonl",
                                             "/home/x/.codex/archived_sessions/**/*.jsonl"))
-        custom = usage_codex.source("/home/x", {"CODEX_HOME": "/custom"})
+        custom = local_usage.codex.source("/home/x", {"CODEX_HOME": "/custom"})
         self.assertEqual(custom.patterns, ("/custom/sessions/**/*.jsonl",
                                            "/custom/archived_sessions/**/*.jsonl"))
 

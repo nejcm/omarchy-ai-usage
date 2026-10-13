@@ -16,8 +16,8 @@ from unittest import mock
 from support import FIXTURES  # noqa: E402
 
 import usage  # noqa: E402
-import usage_report  # noqa: E402
-import usage_scan  # noqa: E402
+import local_usage.report  # noqa: E402
+import local_usage.scan  # noqa: E402
 
 NOW = datetime(2026, 10, 2, 12, tzinfo=timezone.utc).timestamp()
 EMPTY = {"tokens": 0, "output": 0, "sessions": 0, "cacheHit": 0.0,
@@ -68,7 +68,7 @@ class ReportCase(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.home = Path(temporary.name)
         self.env = {"XDG_CACHE_HOME": str(self.home / "cache")}
-        self.connection = usage_scan.open_database(usage_scan.database_path(str(self.home), self.env))
+        self.connection = local_usage.scan.open_database(local_usage.scan.database_path(str(self.home), self.env))
         self.addCleanup(self.connection.close)
 
     def set_timezone(self, name):
@@ -94,7 +94,7 @@ class ReportCase(unittest.TestCase):
         self.connection.commit()
 
     def windows(self, now=NOW, providers=None):
-        return usage_report.windows(self.connection, now, providers)
+        return local_usage.report.windows(self.connection, now, providers)
 
 
 class SummaryTests(ReportCase):
@@ -131,7 +131,7 @@ class SummaryTests(ReportCase):
 
     def test_concurrent_commit_cannot_split_the_snapshot(self):
         self.add("a", NOW, model="m1", input=5)
-        writer = sqlite3.connect(usage_scan.database_path(str(self.home), self.env))
+        writer = sqlite3.connect(local_usage.scan.database_path(str(self.home), self.env))
         writer.execute("PRAGMA busy_timeout = 0")
         self.addCleanup(writer.close)
         attempted = []
@@ -152,7 +152,7 @@ class SummaryTests(ReportCase):
                         attempted.append("blocked")
                 return self.connection.execute(sql, parameters)
 
-        windows = usage_report.windows(Interleaving(self.connection), NOW)
+        windows = local_usage.report.windows(Interleaving(self.connection), NOW)
         self.assertEqual(windows["today"]["tokens"], 5)
         for name in ("today", "7d", "30d"):
             self.assertEqual(windows[name]["tokens"], sum(row["tokens"] for row in windows[name]["models"]))
@@ -270,7 +270,7 @@ class GoldenTests(unittest.TestCase):
 
     def test_scanning_flag_while_budget_is_short(self):
         self.install()
-        with mock.patch.object(usage_scan, "BUDGET_BYTES", 10):
+        with mock.patch.object(local_usage.scan, "BUDGET_BYTES", 10):
             _, document = self.run_cli()
         self.assertTrue(document["usage"]["scanning"])
 

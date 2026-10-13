@@ -13,9 +13,9 @@ from pathlib import Path
 
 from support import FIXTURES  # noqa: E402
 
-import usage_claude  # noqa: E402
-import usage_opencode  # noqa: E402
-import usage_scan  # noqa: E402
+import local_usage.claude  # noqa: E402
+import local_usage.opencode  # noqa: E402
+import local_usage.scan  # noqa: E402
 
 NOW = datetime(2026, 10, 2, tzinfo=timezone.utc).timestamp()
 SCHEMA = """
@@ -43,9 +43,9 @@ class OpenCodeCase(unittest.TestCase):
         self.home = Path(temporary.name)
         self.env = {"XDG_CACHE_HOME": str(self.home / "cache"),
                     "OPENCODE_DATA_DIR": str(self.home / "opencode")}
-        self.connection = usage_scan.open_database(usage_scan.database_path(str(self.home), self.env))
+        self.connection = local_usage.scan.open_database(local_usage.scan.database_path(str(self.home), self.env))
         self.addCleanup(self.connection.close)
-        self.path = Path(usage_opencode.database_path(str(self.home), self.env))
+        self.path = Path(local_usage.opencode.database_path(str(self.home), self.env))
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.source = sqlite3.connect(str(self.path))
         self.addCleanup(self.source.close)
@@ -69,7 +69,7 @@ class OpenCodeCase(unittest.TestCase):
         self.source.commit()
 
     def scan(self):
-        return usage_scan.scan(self.connection, [usage_opencode.query(str(self.home), self.env)], now=NOW)
+        return local_usage.scan.scan(self.connection, [local_usage.opencode.query(str(self.home), self.env)], now=NOW)
 
     def rows(self):
         return self.connection.execute(
@@ -160,7 +160,7 @@ class SourceTests(OpenCodeCase):
                         record["time_updated"], record["data"]))
         source.commit()
         source.close()
-        usage_scan.scan(self.connection, [usage_opencode.query(str(self.home), env)], now=NOW)
+        local_usage.scan.scan(self.connection, [local_usage.opencode.query(str(self.home), env)], now=NOW)
         self.assertEqual([row[0] for row in self.rows()], ["opencode:msg-1"])
 
     def test_file_and_query_sources_run_together(self):
@@ -169,8 +169,8 @@ class SourceTests(OpenCodeCase):
         fixture.write_bytes((FIXTURES / "claude_usage.jsonl").read_bytes())
         os.utime(fixture, (NOW, NOW))
         self.add(message("msg-1"))
-        sources = [usage_claude.source(str(self.home), self.env), usage_opencode.query(str(self.home), self.env)]
-        usage_scan.scan(self.connection, sources, now=NOW)
+        sources = [local_usage.claude.source(str(self.home), self.env), local_usage.opencode.query(str(self.home), self.env)]
+        local_usage.scan.scan(self.connection, sources, now=NOW)
         providers = [row[0] for row in self.connection.execute("SELECT DISTINCT provider FROM events ORDER BY provider")]
         self.assertEqual(providers, ["claude", "opencode"])
 

@@ -8,7 +8,7 @@ import os
 import pathlib
 import sqlite3
 
-import usage_scan
+import local_usage.scan
 from providers import opencode
 
 ID = "opencode"
@@ -32,9 +32,9 @@ WHERE json_extract(valid, '$.role') = 'assistant'
 """
 
 
-def query(home: str, env: dict) -> usage_scan.Query:
+def query(home: str, env: dict) -> local_usage.scan.Query:
     """The message-table source; a missing database yields no events."""
-    return usage_scan.Query(ID, lambda cutoff: _events(database_path(home, env), cutoff))
+    return local_usage.scan.Query(ID, lambda cutoff: _events(database_path(home, env), cutoff))
 
 
 def database_path(home: str, env: dict) -> str:

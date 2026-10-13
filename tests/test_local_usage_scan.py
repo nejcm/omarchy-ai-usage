@@ -15,7 +15,7 @@ from unittest import mock
 
 from support import ROOT  # noqa: E402
 
-import usage_scan  # noqa: E402
+import local_usage.scan  # noqa: E402
 
 NOW = 1700000000.0
 
@@ -40,12 +40,12 @@ class ScanCase(unittest.TestCase):
         self.home = Path(temporary.name)
         self.logs = self.home / "logs"
         self.logs.mkdir()
-        self.connection = usage_scan.open_database(str(self.home / "cache" / "usage.db"))
+        self.connection = local_usage.scan.open_database(str(self.home / "cache" / "usage.db"))
         self.addCleanup(self.connection.close)
         self.sources = [self.source()]
 
     def source(self, parse=stub_parse, root=None):
-        return usage_scan.Source("stub", (str((root or self.logs) / "**" / "*.jsonl"),), parse)
+        return local_usage.scan.Source("stub", (str((root or self.logs) / "**" / "*.jsonl"),), parse)
 
     def write(self, name, text):
         path = self.logs / name
@@ -53,8 +53,8 @@ class ScanCase(unittest.TestCase):
         path.write_text(text)
         return path
 
-    def scan(self, now=NOW, budget=usage_scan.BUDGET_BYTES):
-        return usage_scan.scan(self.connection, self.sources, now=now, budget=budget)
+    def scan(self, now=NOW, budget=local_usage.scan.BUDGET_BYTES):
+        return local_usage.scan.scan(self.connection, self.sources, now=now, budget=budget)
 
     def keys(self):
         return [row[0] for row in self.connection.execute("SELECT key FROM events ORDER BY key")]
@@ -298,24 +298,24 @@ class StateTests(ScanCase):
         script = (
             "import json, os, signal, sys\n"
             "sys.path.insert(0, sys.argv[1])\n"
-            "import usage_scan\n"
+            "import local_usage.scan\n"
             "def parse(line, state, offset):\n"
             "    record = json.loads(line)\n"
             "    if record['key'] == 'die':\n"
             "        os.kill(os.getpid(), signal.SIGKILL)\n"
             "    state['lines'] = state.get('lines', 0) + 1\n"
             "    return [{'key': record['key'], 'ts': record['ts']}]\n"
-            "connection = usage_scan.open_database(sys.argv[2])\n"
-            "usage_scan.scan(connection, [usage_scan.Source('stub', (sys.argv[3],), parse)], now=1700000000.0)\n"
+            "connection = local_usage.scan.open_database(sys.argv[2])\n"
+            "local_usage.scan.scan(connection, [local_usage.scan.Source('stub', (sys.argv[3],), parse)], now=1700000000.0)\n"
         )
         killed = subprocess.run([sys.executable, "-c", script, str(ROOT), str(database), str(log)],
                                 capture_output=True, text=True)
         self.assertEqual(killed.returncode, -signal.SIGKILL, killed.stderr)
-        connection = usage_scan.open_database(str(database))
+        connection = local_usage.scan.open_database(str(database))
         self.addCleanup(connection.close)
         self.assertEqual(connection.execute("SELECT count(*) FROM events").fetchone()[0], 0)
         self.assertEqual(connection.execute("SELECT count(*) FROM files").fetchone()[0], 0)
-        usage_scan.scan(connection, [usage_scan.Source("stub", (str(log),), stub_parse)], now=NOW)
+        local_usage.scan.scan(connection, [local_usage.scan.Source("stub", (str(log),), stub_parse)], now=NOW)
         rows = connection.execute("SELECT key FROM events ORDER BY key").fetchall()
         self.assertEqual([row[0] for row in rows], ["die", "k1", "k2"])
         row = connection.execute("SELECT offset, state FROM files").fetchone()
@@ -356,7 +356,7 @@ class EdgeCaseTests(ScanCase):
         self.assertIn(str(path), self.files())
 
     def test_oversized_line_is_skipped(self):
-        with mock.patch.object(usage_scan, "MAX_LINE_BYTES", 64):
+        with mock.patch.object(local_usage.scan, "MAX_LINE_BYTES", 64):
             path = self.write("a.jsonl", event("k1") + "x" * 200 + "\n" + event("k2"))
             self.scan()
         self.assertEqual(self.keys(), ["k1", "k2"])
@@ -368,7 +368,7 @@ class EdgeCaseTests(ScanCase):
             os.makedirs(os.path.dirname(path))
             with open(path, "wb") as handle:
                 handle.write(b"not a database")
-            connection = usage_scan.open_database(path)
+            connection = local_usage.scan.open_database(path)
             self.addCleanup(connection.close)
             self.assertEqual(connection.execute("SELECT count(*) FROM events").fetchone()[0], 0)
 
@@ -377,18 +377,18 @@ class EdgeCaseTests(ScanCase):
             path = os.path.join(directory, "cache", "usage.db")
             os.makedirs(os.path.dirname(path))
             connection = sqlite3.connect(path)
-            connection.executescript(usage_scan.SCHEMA)
+            connection.executescript(local_usage.scan.SCHEMA)
             connection.commit()
             connection.close()
             with open(path, "r+b") as handle:
                 handle.seek(100)
                 handle.write(b"\xff" * (os.path.getsize(path) - 100))
-            connection = usage_scan.open_database(path)
+            connection = local_usage.scan.open_database(path)
             self.addCleanup(connection.close)
             self.assertEqual(connection.execute("SELECT count(*) FROM events").fetchone()[0], 0)
 
     def test_oversized_line_resumes_across_budget(self):
-        with mock.patch.object(usage_scan, "MAX_LINE_BYTES", 64):
+        with mock.patch.object(local_usage.scan, "MAX_LINE_BYTES", 64):
             path = self.write("a.jsonl", "x" * 300 + "\n" + event("k1"))
             budget = 100
             first = self.scan(budget=budget)
@@ -409,9 +409,9 @@ class EdgeCaseTests(ScanCase):
 
 class PathTests(unittest.TestCase):
     def test_database_path_follows_xdg_cache_home(self):
-        self.assertEqual(usage_scan.database_path("/home/x", {"XDG_CACHE_HOME": "/tmp/cache"}),
+        self.assertEqual(local_usage.scan.database_path("/home/x", {"XDG_CACHE_HOME": "/tmp/cache"}),
                          "/tmp/cache/omarchy-ai-usage/usage.db")
-        self.assertEqual(usage_scan.database_path("/home/x", {}), "/home/x/.cache/omarchy-ai-usage/usage.db")
+        self.assertEqual(local_usage.scan.database_path("/home/x", {}), "/home/x/.cache/omarchy-ai-usage/usage.db")
 
 
 if __name__ == "__main__":

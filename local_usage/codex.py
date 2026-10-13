@@ -1,4 +1,4 @@
-"""Codex session rollouts as a usage_scan source; reads local JSONL only."""
+"""Codex session rollouts as a local_usage.scan source; reads local JSONL only."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 import math
 import os
 
-import usage_scan
+import local_usage.scan
 from providers import common
 
 ID = "codex"
@@ -15,11 +15,11 @@ FIELDS = ("input_tokens", "cached_input_tokens", "cache_write_input_tokens",
           "output_tokens", "reasoning_output_tokens", "total_tokens")
 
 
-def source(home: str, env: dict) -> usage_scan.Source:
+def source(home: str, env: dict) -> local_usage.scan.Source:
     """The sessions and archived_sessions rollout sources under $CODEX_HOME or ~/.codex."""
     root = os.path.expanduser(env.get("CODEX_HOME") or os.path.join(home, ".codex"))
-    return usage_scan.Source(ID, (os.path.join(root, "sessions", "**", "*.jsonl"),
-                                  os.path.join(root, "archived_sessions", "**", "*.jsonl")), parse)
+    return local_usage.scan.Source(ID, (os.path.join(root, "sessions", "**", "*.jsonl"),
+                                        os.path.join(root, "archived_sessions", "**", "*.jsonl")), parse)
 
 
 def parse(line: bytes, state: dict, offset: int) -> list:

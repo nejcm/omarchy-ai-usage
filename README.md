@@ -223,11 +223,11 @@ omarchy plugin remove io.github.nejcm.ai-usage
 | `LocalUsage.qml` | Usage tab: local token, tool, and model totals |
 | `Model.js` | Shared formatting, provider selection, cache merging, and warning-period logic |
 | `usage.py` | One-shot collector, CLI, and shared HTTP transport |
-| `usage_scan.py` | Incremental local-log scan into the SQLite usage cache |
-| `usage_claude.py` | Claude Code transcript source for the usage scan |
-| `usage_codex.py` | Codex session-rollout source for the usage scan |
-| `usage_opencode.py` | OpenCode database source for the usage scan |
-| `usage_report.py` | Aggregates the usage cache into windowed token and model totals |
+| `local_usage/scan.py` | Incremental local-log scan into the SQLite usage cache |
+| `local_usage/claude.py` | Claude Code transcript source for the usage scan |
+| `local_usage/codex.py` | Codex session-rollout source for the usage scan |
+| `local_usage/opencode.py` | OpenCode database source for the usage scan |
+| `local_usage/report.py` | Aggregates the usage cache into windowed token and model totals |
 | `providers/` | Quota collection only: provider-specific credential readers and response parsers (the usage sources reuse its path and time helpers) |
 | `tests/` | Offline tests and redacted provider fixtures |
 | `assets/` | Provider logos, including white variants for dark backgrounds |

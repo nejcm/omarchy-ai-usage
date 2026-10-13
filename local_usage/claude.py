@@ -1,4 +1,4 @@
-"""Claude Code project transcripts as a usage_scan source; reads local JSONL only."""
+"""Claude Code project transcripts as a local_usage.scan source; reads local JSONL only."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 import math
 import os
 
-import usage_scan
+import local_usage.scan
 from providers import common
 
 ID = "claude"
@@ -17,10 +17,10 @@ MERGE = ("ON CONFLICT(key) DO UPDATE SET output = excluded.output, reasoning = e
 MAX_INT = 2 ** 63 - 1
 
 
-def source(home: str, env: dict) -> usage_scan.Source:
+def source(home: str, env: dict) -> local_usage.scan.Source:
     """The projects transcript source under $CLAUDE_CONFIG_DIR or ~/.claude."""
     root = common.claude_config_directory(home, env.get("CLAUDE_CONFIG_DIR"))
-    return usage_scan.Source(ID, (os.path.join(root, "projects", "**", "*.jsonl"),), parse, MERGE)
+    return local_usage.scan.Source(ID, (os.path.join(root, "projects", "**", "*.jsonl"),), parse, MERGE)
 
 
 def parse(line: bytes, state: dict, offset: int) -> list:

@@ -14,15 +14,15 @@ import urllib.request
 from urllib.parse import urlsplit
 
 import providers
-import usage_claude
-import usage_codex
-import usage_opencode
-import usage_report
-import usage_scan
+import local_usage.claude
+import local_usage.codex
+import local_usage.opencode
+import local_usage.report
+import local_usage.scan
 from providers import common
 
 TIMEOUT = 10
-USAGE_SOURCES = {"claude": usage_claude.source, "codex": usage_codex.source, "opencode": usage_opencode.query}
+USAGE_SOURCES = {"claude": local_usage.claude.source, "codex": local_usage.codex.source, "opencode": local_usage.opencode.query}
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -86,12 +86,12 @@ def collect_all(home: str, env: dict, request_fn=request, select=None) -> list:
 def usage_document(home: str, env: dict, select=None) -> dict:
     """Scan the selected local logs and aggregate the usage windows."""
     selected = [provider for provider in USAGE_SOURCES if select is None or provider in select]
-    connection = usage_scan.open_database(usage_scan.database_path(home, env))
+    connection = local_usage.scan.open_database(local_usage.scan.database_path(home, env))
     moment = time.time()
     try:
-        result = usage_scan.scan(connection, [USAGE_SOURCES[provider](home, env) for provider in selected],
-                                 now=moment, budget=usage_scan.BUDGET_BYTES)
-        available = usage_report.windows(connection, moment, selected)
+        result = local_usage.scan.scan(connection, [USAGE_SOURCES[provider](home, env) for provider in selected],
+                                       now=moment, budget=local_usage.scan.BUDGET_BYTES)
+        available = local_usage.report.windows(connection, moment, selected)
     finally:
         connection.close()
     return {"scanning": result.pending, "windows": available}
