@@ -33,6 +33,15 @@ Panel {
   readonly property var usageDays: usageWindow && usageWindow.days ? usageWindow.days : []
   readonly property var usageProviderIds: Model.providerIds(usageWindow)
   readonly property bool usageScanning: usage !== null && usage.scanning === true
+  readonly property bool usageFound: {
+    var month = usage && usage.windows ? usage.windows["30d"] : null
+    return !!month && Array.isArray(month.providers) && month.providers.length > 0
+  }
+  readonly property string usageMessage: {
+    if (hostWidget && hostWidget.enabledProviders && hostWidget.enabledProviders.length === 0) return "No providers enabled"
+    if (!usage || usageScanning) return "Scanning local logs…"
+    return usageFound ? "" : "No local usage found"
+  }
   readonly property real usageBreakdownTotal: {
     var breakdown = usageWindow && usageWindow.breakdown ? usageWindow.breakdown : null
     return breakdown ? Number(breakdown.input) + Number(breakdown.cacheRead) + Number(breakdown.cacheWrite) + Number(breakdown.output) + Number(breakdown.reasoning) : 0
@@ -473,16 +482,16 @@ Panel {
               }
 
               Text {
-                visible: root.usage === null || root.usageScanning
+                visible: root.usageMessage !== ""
                 width: parent.width
-                text: root.hostWidget && root.hostWidget.enabledProviders.length === 0 ? "No providers enabled" : "Scanning local logs…"
+                text: root.usageMessage
                 color: root.dimForeground
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.body
               }
 
               Row {
-                visible: root.usageWindow !== null
+                visible: root.usageWindow !== null && root.usageFound
                 spacing: Style.space(16)
 
                 StatCell { label: "tokens"; value: Model.compactNumber(root.usageWindow ? root.usageWindow.tokens : 0) }
@@ -492,7 +501,7 @@ Panel {
               }
 
               Column {
-                visible: root.usageDays.length > 0
+                visible: root.usageDays.length > 0 && root.usageFound
                 width: parent.width
                 spacing: Style.space(2)
 
@@ -592,8 +601,12 @@ Panel {
                       id: toolName
                       anchors.left: toolDot.right
                       anchors.leftMargin: Style.space(8)
+                      anchors.right: toolTrack.left
+                      anchors.rightMargin: Style.space(8)
                       anchors.verticalCenter: parent.verticalCenter
                       text: Model.PROVIDER_INFO[toolRow.modelData.id] ? Model.PROVIDER_INFO[toolRow.modelData.id].name : toolRow.modelData.id
+                      textFormat: Text.PlainText
+                      elide: Text.ElideRight
                       color: root.contentForeground
                       font.family: root.contentFontFamily
                       font.pixelSize: Style.font.caption
@@ -610,11 +623,11 @@ Panel {
                     }
 
                     Rectangle {
-                      anchors.left: toolName.right
-                      anchors.leftMargin: Style.space(8)
+                      id: toolTrack
                       anchors.right: toolValue.left
                       anchors.rightMargin: Style.space(8)
                       anchors.verticalCenter: parent.verticalCenter
+                      width: parent.width * 0.3
                       height: Style.space(4)
                       radius: height / 2
                       color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.12)
@@ -728,6 +741,7 @@ Panel {
               }
 
               Button {
+                visible: root.usageFound
                 width: parent.width
                 leftAlign: true
                 text: (root.breakdownOpen ? "▾ " : "▸ ") + "Token breakdown"
@@ -738,7 +752,7 @@ Panel {
               }
 
               Column {
-                visible: root.breakdownOpen
+                visible: root.breakdownOpen && root.usageFound
                 width: parent.width
                 spacing: Style.space(4)
 
@@ -784,7 +798,7 @@ Panel {
               }
 
               Text {
-                visible: root.usageWindow !== null
+                visible: root.usageWindow !== null && root.usageFound
                 width: parent.width
                 text: Model.usageFooter(root.usageWindowName)
                 color: root.dimForeground

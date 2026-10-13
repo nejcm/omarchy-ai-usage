@@ -128,6 +128,7 @@ BarWidget {
     var cachedMs = displayRows.length === enabledProviders.length ? cachedAtMs : 0
     var lastMs = Math.max(lastAttemptMs, cachedMs)
     if (lastMs === 0 || Date.now() - lastMs >= refreshMs) refresh()
+    else if (root.usage === null) Qt.callLater(root.refreshUsage)
   }
 
   function applyOutput(text) {
@@ -212,7 +213,14 @@ BarWidget {
 
   onBarChanged: injectPanel()
   onSettingsChanged: injectPanel()
-  onLocalUsageChanged: if (!root.localUsage) localUsageProcess.running = false
+  onLocalUsageChanged: {
+    if (root.localUsage) {
+      Qt.callLater(root.refreshUsage)
+      return
+    }
+    localUsageProcess.running = false
+    root.usage = null
+  }
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight

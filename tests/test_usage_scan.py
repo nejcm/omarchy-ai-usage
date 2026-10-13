@@ -361,6 +361,16 @@ class EdgeCaseTests(ScanCase):
         self.assertEqual(self.keys(), ["k1", "k2"])
         self.assertEqual(self.offset(path), path.stat().st_size)
 
+    def test_corrupt_cache_is_recreated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "cache", "usage.db")
+            os.makedirs(os.path.dirname(path))
+            with open(path, "wb") as handle:
+                handle.write(b"not a database")
+            connection = usage_scan.open_database(path)
+            self.addCleanup(connection.close)
+            self.assertEqual(connection.execute("SELECT count(*) FROM events").fetchone()[0], 0)
+
     def test_oversized_line_resumes_across_budget(self):
         with mock.patch.object(usage_scan, "MAX_LINE_BYTES", 64):
             path = self.write("a.jsonl", "x" * 300 + "\n" + event("k1"))

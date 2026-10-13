@@ -979,23 +979,6 @@ root.usageSelectionKey = "claude";
 applyUsageOutput(JSON.stringify({usage:{scanning:false, windows:{"7d":{tokens:7}}}}));
 assert.deepEqual(root.usage, {scanning:false, windows:{"7d":{tokens:7}}});
 root.refreshUsage = function() { root.refreshUsageCalls = (root.refreshUsageCalls || 0) + 1; };
-function statement(marker) {
-  const start = qml.indexOf(marker);
-  assert(start >= 0);
-  const end = qml.indexOf("\\n", start);
-  const body = qml.slice(start + marker.length, end);
-  const wrapper = new Function("root", "localUsageProcess", "Model",
-    "with (root) { return (function() { " + body + " }) }");
-  return wrapper(root, localUsageProcess, Model);
-}
-const localUsageChanged = statement("  onLocalUsageChanged: ");
-localUsageProcess.running = true;
-root.localUsage = true;
-localUsageChanged();
-assert.equal(localUsageProcess.running, true);
-root.localUsage = false;
-localUsageChanged();
-assert.equal(localUsageProcess.running, false);
 function handler(name) {
   const start = qml.indexOf("  " + name + ": {");
   assert(start >= 0);
@@ -1005,6 +988,16 @@ function handler(name) {
   return new Function("root", "localUsageProcess", "Model",
     "with (root) { return (function() {" + qml.slice(open, end) + "}) }")(root, localUsageProcess, Model);
 }
+const localUsageChanged = handler("onLocalUsageChanged");
+root.localUsage = true;
+localUsageChanged();
+assert.equal(root.refreshUsageCalls, 1);
+localUsageProcess.running = true;
+root.usage = {scanning:false};
+root.localUsage = false;
+localUsageChanged();
+assert.equal(localUsageProcess.running, false);
+assert.equal(root.usage, null);
 const selectionChanged = handler("onSelectionKeyChanged");
 root.localUsage = true;
 root.lastAttemptMs = 1;

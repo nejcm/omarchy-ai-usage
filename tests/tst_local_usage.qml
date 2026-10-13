@@ -176,6 +176,12 @@ Item {
       })
     }
 
+    function quotaProcess() {
+      return harness.find(widget(), function(item) {
+        return item.command !== undefined && item.command.indexOf("--usage") < 0
+      })
+    }
+
     function initTestCase() {
       widgetLoader.setSource(Qt.resolvedUrl("../BarWidget.qml"),
         { settings: { enabledProviders: ["claude", "codex"] } })
@@ -226,6 +232,69 @@ Item {
       widget().refreshUsage()
       process.emitStream(JSON.stringify({ usage: { scanning: false, windows: { "7d": { tokens: 12 } } } }))
       compare(widget().usage.windows["7d"].tokens, 12)
+    }
+
+    function test_quota_exit_starts_a_scan_when_on() {
+      var process = usageProcess()
+      widget().settings = { localUsage: true, enabledProviders: ["claude"] }
+      process.running = false
+      process.starts = 0
+      quotaProcess().exited(0, 0)
+      compare(process.running, true)
+      compare(process.starts, 1)
+    }
+
+    function test_quota_exit_runs_no_scan_when_off() {
+      var process = usageProcess()
+      widget().settings = { localUsage: false, enabledProviders: ["claude"] }
+      process.running = false
+      process.starts = 0
+      quotaProcess().exited(0, 0)
+      compare(process.running, false)
+      compare(process.starts, 0)
+    }
+
+    function test_toggle_back_on_restarts_the_scan() {
+      var process = usageProcess()
+      widget().settings = { localUsage: true, enabledProviders: ["claude"] }
+      widget().usage = { scanning: false, windows: {} }
+      process.running = false
+      widget().settings = { localUsage: false, enabledProviders: ["claude"] }
+      compare(widget().usage, null)
+      process.starts = 0
+      widget().settings = { localUsage: true, enabledProviders: ["claude"] }
+      wait(50)
+      compare(process.running, true)
+      compare(process.starts, 1)
+    }
+
+    function test_selection_change_restarts_the_scan() {
+      var process = usageProcess()
+      widget().settings = { localUsage: true, enabledProviders: ["claude"] }
+      process.running = false
+      widget().refreshUsage()
+      compare(process.running, true)
+      widget().settings = { localUsage: true, enabledProviders: ["codex"] }
+      compare(process.running, false)
+      compare(widget().usagePending, true)
+      process.exited(0, 0)
+      wait(50)
+      compare(process.running, true)
+      compare(process.command[4], "codex")
+    }
+
+    function test_fresh_cache_starts_the_first_scan() {
+      var process = usageProcess()
+      widget().settings = { localUsage: true, enabledProviders: ["claude"] }
+      widget().usage = null
+      widget().usageSelectionKey = ""
+      widget().lastAttemptMs = Date.now()
+      process.running = false
+      process.starts = 0
+      widget().refreshIfStale()
+      wait(50)
+      compare(process.running, true)
+      compare(process.starts, 1)
     }
   }
 
@@ -294,6 +363,23 @@ Item {
       compare(panel().tab, "usage")
       tabSelector().changed("limits")
       compare(panel().tab, "limits")
+    }
+
+    function test_no_local_usage_message() {
+      panelHost.localUsage = true
+      panelHost.enabledProviders = ["claude"]
+      panelHost.usage = { scanning: false, windows: { "30d": { providers: [], models: [] } } }
+      compare(panel().usageFound, false)
+      compare(panel().usageMessage, "No local usage found")
+      panelHost.usage = { scanning: false, windows: { "30d": { providers: [{ id: "claude", tokens: 5 }] } } }
+      compare(panel().usageFound, true)
+      compare(panel().usageMessage, "")
+      panelHost.usage = { scanning: true, windows: {} }
+      compare(panel().usageMessage, "Scanning local logs…")
+      panelHost.enabledProviders = []
+      compare(panel().usageMessage, "No providers enabled")
+      panelHost.enabledProviders = ["claude"]
+      panelHost.usage = { scanning: false, windows: {} }
     }
   }
 }
