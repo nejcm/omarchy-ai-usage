@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import signal
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -367,6 +368,21 @@ class EdgeCaseTests(ScanCase):
             os.makedirs(os.path.dirname(path))
             with open(path, "wb") as handle:
                 handle.write(b"not a database")
+            connection = usage_scan.open_database(path)
+            self.addCleanup(connection.close)
+            self.assertEqual(connection.execute("SELECT count(*) FROM events").fetchone()[0], 0)
+
+    def test_malformed_cache_is_recreated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "cache", "usage.db")
+            os.makedirs(os.path.dirname(path))
+            connection = sqlite3.connect(path)
+            connection.executescript(usage_scan.SCHEMA)
+            connection.commit()
+            connection.close()
+            with open(path, "r+b") as handle:
+                handle.seek(100)
+                handle.write(b"\xff" * (os.path.getsize(path) - 100))
             connection = usage_scan.open_database(path)
             self.addCleanup(connection.close)
             self.assertEqual(connection.execute("SELECT count(*) FROM events").fetchone()[0], 0)

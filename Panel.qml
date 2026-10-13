@@ -616,6 +616,8 @@ Panel {
                       id: toolValue
                       anchors.right: parent.right
                       anchors.verticalCenter: parent.verticalCenter
+                      width: parent.width * 0.2
+                      horizontalAlignment: Text.AlignRight
                       text: Model.compactNumber(toolRow.modelData.tokens)
                       color: root.contentForeground
                       font.family: root.contentFontFamily
@@ -710,6 +712,8 @@ Panel {
                         id: modelValue
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width * 0.2
+                        horizontalAlignment: Text.AlignRight
                         text: Model.compactNumber(modelRow.modelData.tokens)
                         color: root.contentForeground
                         font.family: root.contentFontFamily

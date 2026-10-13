@@ -47,15 +47,19 @@ def open_database(path: str) -> sqlite3.Connection:
     """Open the usage cache, creating its directory and schema."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     try:
-        return _open(path)
+        connection = _open(path)
+        if connection.execute("PRAGMA quick_check(1)").fetchone()[0] == "ok":
+            return connection
+        connection.close()
+    except sqlite3.OperationalError:
+        raise
     except sqlite3.DatabaseError:
-        if not _corrupt(path):
-            raise
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
-        return _open(path)
+        pass
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+    return _open(path)
 
 
 def _open(path):
@@ -63,15 +67,6 @@ def _open(path):
     connection.execute("PRAGMA busy_timeout = %d" % BUSY_TIMEOUT_MS)
     connection.executescript(SCHEMA)
     return connection
-
-
-def _corrupt(path) -> bool:
-    try:
-        with open(path, "rb") as handle:
-            header = handle.read(16)
-    except OSError:
-        return False
-    return bool(header) and header != b"SQLite format 3\x00"
 
 
 def discover(source, cutoff: float) -> list:
