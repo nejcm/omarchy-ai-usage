@@ -925,6 +925,8 @@ const assert = require("node:assert/strict");
 const root = {enabledProviders:[], loadedOnce:false, refreshPending:false,
   refreshing:false, lastAttemptMs:0, cachedAtMs:0, cacheChecked:false, refreshMs:300000, rows:[], refreshedAt:"",
   script:"/plugin path/usage.py",
+  get displayRows() { return Model.orderedRows(this.rows, this.enabledProviders); },
+  Qt:{callLater(fn) { fn(); }},
   cacheFile:{setText(text) { root.cachedText = text; }},
   checkWarnings(rows) { this.warningRows = rows; }};
 const process = {running:false};
@@ -966,6 +968,7 @@ assert.equal(cached.refreshedAt, "");
 root.refreshCalls = 0;
 root.refresh = function() { root.refreshCalls += 1; };
 const stale = method("refreshIfStale");
+root.refreshIfStale = stale;
 root.lastAttemptMs = 0;
 root.cachedAtMs = Date.now();
 stale();
@@ -1014,6 +1017,35 @@ assert.deepEqual(root.rows.map(row => row.provider), ["claude"]);
 root.enabledProviders = ["codex", "claude"];
 handler("onSelectionKeyChanged")();
 assert.deepEqual(root.rows.map(row => row.provider), ["claude"]);
+root.refreshCalls = 0;
+root.lastAttemptMs = 0;
+root.loadedOnce = false;
+root.rows = [{provider:"codex", status:"ok", metrics:[]}];
+root.enabledProviders = ["codex", "cursor"];
+root.cachedAtMs = Date.now();
+stale();
+assert.equal(root.refreshCalls, 1);
+root.refreshCalls = 0;
+root.enabledProviders = ["codex"];
+stale();
+assert.equal(root.refreshCalls, 0);
+root.rows = [{provider:"codex", status:"ok", metrics:[]}, {provider:"claude", status:"ok", metrics:[]}];
+root.enabledProviders = ["codex", "claude"];
+root.cacheChecked = true;
+handler("onSelectionKeyChanged")();
+assert.equal(root.refreshCalls, 0);
+root.enabledProviders = ["claude"];
+handler("onSelectionKeyChanged")();
+assert.equal(root.refreshCalls, 0);
+root.refreshCalls = 0;
+root.rows = [];
+root.enabledProviders = ["codex"];
+restore(JSON.stringify({refreshedAt:new Date().toISOString(),
+  rows:[{provider:"codex", status:"ok", metrics:[]}]}));
+assert(root.cachedAtMs > 0);
+root.enabledProviders = ["codex", "cursor"];
+handler("onSelectionKeyChanged")();
+assert.equal(root.refreshCalls, 1);
 """
         subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
 

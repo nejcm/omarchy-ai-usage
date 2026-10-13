@@ -102,9 +102,10 @@ BarWidget {
     root.cacheChecked = true
   }
 
-  // Timer and panel-open refreshes are interval-gated from the last attempt or cached reading.
+  // Timer and panel-open refreshes are interval-gated from the last attempt or a fully covered cache.
   function refreshIfStale() {
-    var lastMs = Math.max(lastAttemptMs, cachedAtMs)
+    var cachedMs = displayRows.length === enabledProviders.length ? cachedAtMs : 0
+    var lastMs = Math.max(lastAttemptMs, cachedMs)
     if (lastMs === 0 || Date.now() - lastMs >= refreshMs) refresh()
   }
 
@@ -136,6 +137,8 @@ BarWidget {
     root.rows = Model.orderedRows(root.rows, root.enabledProviders)
     if (root.enabledProviders.length === 0) root.loadedOnce = true
     if (root.lastAttemptMs > 0 || root.loadedOnce) Qt.callLater(root.refresh)
+    // Newly enabled providers fetch only if the fresh cache does not cover them.
+    else if (root.cacheChecked) Qt.callLater(root.refreshIfStale)
   }
 
   Component.onCompleted: if (root.enabledProviders.length === 0) root.loadedOnce = true
@@ -231,7 +234,7 @@ BarWidget {
     labelVisible: root.navbarRows.length === 0
     hasVisualContent: true
     fixedWidth: root.navbarRows.length === 0 ? -1 : barRow.implicitWidth + scaledHorizontalMargin * 2
-    dimmed: !root.loadedOnce && root.rows.length === 0
+    dimmed: !root.loadedOnce && root.displayRows.length === 0
     tooltipText: Model.barTooltip(root.displayMode)
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.LeftButton) root.togglePanel()
