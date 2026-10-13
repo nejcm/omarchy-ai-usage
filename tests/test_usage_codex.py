@@ -70,7 +70,7 @@ class CodexCase(unittest.TestCase):
 class FixtureTests(CodexCase):
     def test_session_events_use_last_usage(self):
         path = self.install("codex_session.jsonl")
-        self.assertGreater(self.scan(), 0)
+        self.assertGreater(self.scan().read, 0)
         offsets = line_offsets("codex_session.jsonl")
         rows = self.rows()
         self.assertEqual([row[0] for row in rows],
@@ -88,7 +88,7 @@ class FixtureTests(CodexCase):
         self.scan()
         with path.open("ab") as handle:
             handle.write(fixture_lines("codex_session.jsonl")[4])
-        self.assertGreater(self.scan(), 0)
+        self.assertGreater(self.scan().read, 0)
         self.assertEqual(len(self.rows()), 2)
 
     def test_fork_ignores_replayed_history_and_keeps_child_id(self):

@@ -101,7 +101,7 @@ class SourceTests(OpenCodeCase):
 
     def test_missing_database_is_absent(self):
         self.path.unlink()
-        self.assertEqual(self.scan(), 0)
+        self.assertEqual(self.scan().read, 0)
         self.assertEqual(self.rows(), [])
 
     def test_invalid_rows_are_skipped(self):

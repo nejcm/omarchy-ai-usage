@@ -104,7 +104,7 @@ class ParserTests(unittest.TestCase):
 class FixtureTests(ClaudeCase):
     def test_fixture_events(self):
         self.install()
-        self.assertGreater(self.scan(), 0)
+        self.assertGreater(self.scan().read, 0)
         rows = self.rows()
         self.assertEqual([row[0] for row in rows],
                          ["claude:msg-1:req-1", "claude:msg-3:req-3", "claude:msg-4:req-4"])
@@ -169,9 +169,9 @@ class FixtureTests(ClaudeCase):
                                   "message": {"id": "msg-3", "model": "claude-opus-5-5",
                                               "usage": {"input_tokens": 1e20, "output_tokens": 1}}})
         path = self.transcript("a.jsonl", stream(40) + invalid + "\n" + overflowing + "\n" + stream(50, request="req-4"))
-        self.assertGreater(self.scan(), 0)
+        self.assertGreater(self.scan().read, 0)
         self.assertEqual([row[0] for row in self.rows()], ["claude:msg-1:req-1", "claude:msg-1:req-4"])
-        self.assertEqual(self.scan(), 0)
+        self.assertEqual(self.scan().read, 0)
         self.assertEqual(self.connection.execute("SELECT offset FROM files").fetchone()[0], path.stat().st_size)
 
     def test_global_key_deduplicates_across_files(self):

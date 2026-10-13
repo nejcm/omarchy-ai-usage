@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-shot collector: read local agent credentials, print normalized usage JSON."""
+"""One-shot collector: print subscription quota or local token usage JSON."""
 
 from __future__ import annotations
 
@@ -8,14 +8,21 @@ import json
 import os
 import socket
 import sys
+import time
 import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
 
 import providers
+import usage_claude
+import usage_codex
+import usage_opencode
+import usage_report
+import usage_scan
 from providers import common
 
 TIMEOUT = 10
+USAGE_SOURCES = {"claude": usage_claude.source, "codex": usage_codex.source, "opencode": usage_opencode.query}
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -76,23 +83,41 @@ def collect_all(home: str, env: dict, request_fn=request, select=None) -> list:
     return rows
 
 
+def usage_document(home: str, env: dict, select=None) -> dict:
+    """Scan the selected local logs and aggregate the usage windows."""
+    selected = [provider for provider in USAGE_SOURCES if select is None or provider in select]
+    connection = usage_scan.open_database(usage_scan.database_path(home, env))
+    moment = time.time()
+    try:
+        result = usage_scan.scan(connection, [USAGE_SOURCES[provider](home, env) for provider in selected],
+                                 now=moment, budget=usage_scan.BUDGET_BYTES)
+        available = usage_report.windows(connection, moment, selected)
+    finally:
+        connection.close()
+    return {"scanning": result.pending, "windows": available}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Print local AI agent subscription usage as JSON")
     parser.add_argument("--home", default=None, help="override the home directory (tests)")
     parser.add_argument("--provider", action="append", default=None, help="only this provider id (repeatable)")
     parser.add_argument("--timeout", type=float, default=TIMEOUT)
+    parser.add_argument("--usage", action="store_true", help="scan local logs for token usage instead")
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args(argv)
 
     home = os.path.expanduser(args.home) if args.home else os.path.expanduser("~")
 
-    def request_fn(method, url, hosts, headers, body=None, error_body=False):
-        return request(method, url, hosts, headers, body, args.timeout, error_body=error_body)
+    if args.usage:
+        document = {"usage": usage_document(home, os.environ, args.provider)}
+    else:
+        def request_fn(method, url, hosts, headers, body=None, error_body=False):
+            return request(method, url, hosts, headers, body, args.timeout, error_body=error_body)
 
-    document = {
-        "refreshedAt": common.now_iso(),
-        "providers": collect_all(home, os.environ, request_fn, args.provider),
-    }
+        document = {
+            "refreshedAt": common.now_iso(),
+            "providers": collect_all(home, os.environ, request_fn, args.provider),
+        }
     json.dump(document, sys.stdout, indent=2 if args.pretty else None, separators=None if args.pretty else (",", ":"))
     sys.stdout.write("\n")
     return 0

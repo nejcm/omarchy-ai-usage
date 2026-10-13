@@ -77,8 +77,9 @@ class ScanCase(unittest.TestCase):
 class StateTests(ScanCase):
     def test_cold_scan_indexes_complete_lines(self):
         path = self.write("nested/a.jsonl", event("k1", model="m1", input=7) + event("k2", cache_read=3))
-        read = self.scan()
-        self.assertEqual(read, path.stat().st_size)
+        result = self.scan()
+        self.assertEqual(result.read, path.stat().st_size)
+        self.assertFalse(result.pending)
         self.assertEqual(self.offset(path), path.stat().st_size)
         rows = self.events()
         self.assertEqual([row[0] for row in rows], ["k1", "k2"])
@@ -104,7 +105,7 @@ class StateTests(ScanCase):
         with path.open("a") as handle:
             handle.write(event("k2"))
         self.scan()
-        self.assertEqual(self.scan(), 0)
+        self.assertEqual(self.scan().read, 0)
         self.assertEqual(self.keys(), ["k1", "k2"])
         self.assertEqual(self.state(path), {"lines": 2})
 
@@ -114,23 +115,68 @@ class StateTests(ScanCase):
             self.write("%d.jsonl" % index, text)
         size = len(texts[0].encode())
         budget = 3 * size
-        self.assertEqual(self.scan(budget=budget), budget)
+        first = self.scan(budget=budget)
+        self.assertEqual(first.read, budget)
+        self.assertTrue(first.pending)
         self.assertEqual(self.keys(), ["k0", "k1", "k2"])
-        self.assertEqual(self.scan(budget=budget), size)
+        second = self.scan(budget=budget)
+        self.assertEqual(second.read, size)
+        self.assertFalse(second.pending)
         self.assertEqual(self.keys(), ["k0", "k1", "k2", "k3"])
-        self.assertEqual(self.scan(budget=budget), 0)
+        self.assertEqual(self.scan(budget=budget).read, 0)
 
     def test_budget_resumes_mid_file(self):
         texts = [event("k0"), event("k1"), event("k2")]
         path = self.write("a.jsonl", "".join(texts))
         size = len(texts[0].encode())
-        self.assertEqual(self.scan(budget=2 * size), 2 * size)
+        first = self.scan(budget=2 * size)
+        self.assertEqual(first.read, 2 * size)
+        self.assertTrue(first.pending)
         self.assertEqual(self.keys(), ["k0", "k1"])
         self.assertEqual(self.offset(path), 2 * size)
-        self.assertEqual(self.scan(budget=2 * size), size)
+        second = self.scan(budget=2 * size)
+        self.assertEqual(second.read, size)
+        self.assertFalse(second.pending)
         self.assertEqual(self.keys(), ["k0", "k1", "k2"])
         self.assertEqual(self.offset(path), path.stat().st_size)
         self.assertEqual(self.state(path), {"lines": 3})
+
+    def test_pending_false_when_budget_is_exactly_consumed(self):
+        texts = [event("k0"), event("k1")]
+        self.write("a.jsonl", "".join(texts))
+        result = self.scan(budget=2 * len(texts[0].encode()))
+        self.assertEqual(result.read, 2 * len(texts[0].encode()))
+        self.assertFalse(result.pending)
+
+    def test_pending_false_when_only_empty_files_remain(self):
+        text = event("k0")
+        self.write("a.jsonl", text)
+        self.write("b.jsonl", "")
+        result = self.scan(budget=len(text.encode()))
+        self.assertEqual(result.read, len(text.encode()))
+        self.assertFalse(result.pending)
+
+    def test_pending_false_when_remaining_files_are_current(self):
+        first = event("k0")
+        a = self.write("a.jsonl", first)
+        self.write("b.jsonl", event("k1"))
+        self.scan()
+        with a.open("a") as handle:
+            handle.write(event("k2"))
+        result = self.scan(budget=len(first.encode()))
+        self.assertEqual(result.read, len(first.encode()))
+        self.assertFalse(result.pending)
+
+    def test_pending_true_when_a_processed_file_is_unfinished(self):
+        first = event("k0")
+        a = self.write("a.jsonl", first)
+        self.write("b.jsonl", event("k1"))
+        self.scan()
+        with a.open("a") as handle:
+            handle.write(event("k2") + event("k3"))
+        result = self.scan(budget=len(first.encode()))
+        self.assertEqual(result.read, len(first.encode()))
+        self.assertTrue(result.pending)
 
     def test_failed_file_consumes_budget(self):
         first = self.write("a.jsonl", event("k1") + event("boom", ts=1700000001))
@@ -143,11 +189,11 @@ class StateTests(ScanCase):
 
         budget = first.stat().st_size
         self.sources = [self.source(parse=failing)]
-        self.assertEqual(self.scan(budget=budget), budget)
+        self.assertEqual(self.scan(budget=budget).read, budget)
         self.assertEqual(self.keys(), [])
         self.assertNotIn(str(second), self.files())
         self.sources = [self.source()]
-        self.assertGreater(self.scan(), 0)
+        self.assertGreater(self.scan().read, 0)
         self.assertEqual(self.keys(), ["boom", "k1", "k2"])
         self.assertIn(str(second), self.files())
 
@@ -162,9 +208,9 @@ class StateTests(ScanCase):
 
         self.sources = [self.source(parse=failing)]
         budget = first.stat().st_size
-        self.assertEqual(self.scan(now=NOW, budget=budget), budget)
+        self.assertEqual(self.scan(now=NOW, budget=budget).read, budget)
         self.assertEqual(self.keys(), [])
-        self.assertGreater(self.scan(now=NOW + 1, budget=budget), 0)
+        self.assertGreater(self.scan(now=NOW + 1, budget=budget).read, 0)
         self.assertEqual(self.keys(), ["k1", "k2"])
         self.assertIn(str(second), self.files())
 
@@ -179,9 +225,9 @@ class StateTests(ScanCase):
 
         self.sources = [self.source(parse=failing, root=self.logs / "one"), self.source(root=self.logs / "two")]
         budget = first.stat().st_size
-        self.assertEqual(self.scan(now=NOW, budget=budget), budget)
+        self.assertEqual(self.scan(now=NOW, budget=budget).read, budget)
         self.assertEqual(self.keys(), [])
-        self.assertGreater(self.scan(now=NOW + 1, budget=budget), 0)
+        self.assertGreater(self.scan(now=NOW + 1, budget=budget).read, 0)
         self.assertEqual(self.keys(), ["k1", "k2"])
         self.assertIn(str(second), self.files())
 
@@ -194,11 +240,11 @@ class StateTests(ScanCase):
             return stub_parse(line, state, offset)
 
         self.sources = [self.source(parse=failing)]
-        self.assertGreater(self.scan(), 0)
+        self.assertGreater(self.scan().read, 0)
         self.assertEqual(self.keys(), [])
         self.assertEqual(self.offset(path), 0)
         self.sources = [self.source()]
-        self.assertGreater(self.scan(), 0)
+        self.assertGreater(self.scan().read, 0)
         self.assertEqual(self.keys(), ["boom", "k1", "k2"])
 
     def test_truncated_file_restarts_and_clears_state(self):
@@ -279,13 +325,13 @@ class StateTests(ScanCase):
 class EdgeCaseTests(ScanCase):
     def test_missing_root_scan_is_empty(self):
         self.sources = [self.source(root=self.home / "missing")]
-        self.assertEqual(self.scan(), 0)
+        self.assertEqual(self.scan().read, 0)
         self.assertEqual(self.keys(), [])
         self.assertEqual(self.files(), {})
 
     def test_empty_file(self):
         path = self.write("a.jsonl", "")
-        self.assertEqual(self.scan(), 0)
+        self.assertEqual(self.scan().read, 0)
         self.assertEqual(self.keys(), [])
         self.assertIn(str(path), self.files())
 
@@ -294,7 +340,7 @@ class EdgeCaseTests(ScanCase):
         path = self.write("a.jsonl", event("k1"))
         os.chmod(path, 0)
         self.addCleanup(os.chmod, path, 0o600)
-        self.assertEqual(self.scan(), 0)
+        self.assertEqual(self.scan().read, 0)
         self.assertEqual(self.keys(), [])
         self.assertEqual(self.files(), {})
 
@@ -319,12 +365,14 @@ class EdgeCaseTests(ScanCase):
         with mock.patch.object(usage_scan, "MAX_LINE_BYTES", 64):
             path = self.write("a.jsonl", "x" * 300 + "\n" + event("k1"))
             budget = 100
-            reads = [self.scan(budget=budget)]
-            self.assertEqual(reads[0], budget)
+            first = self.scan(budget=budget)
+            reads = [first.read]
+            self.assertEqual(first.read, budget)
+            self.assertTrue(first.pending)
             self.assertEqual(self.offset(path), 0)
             self.assertEqual(self.state(path), {"_skip": budget})
             for _ in range(10):
-                reads.append(self.scan(budget=budget))
+                reads.append(self.scan(budget=budget).read)
                 if reads[-1] == 0:
                     break
         self.assertEqual(self.keys(), ["k1"])

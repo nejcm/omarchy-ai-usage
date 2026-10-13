@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS events(
 
 Source = namedtuple("Source", "id patterns parse merge", defaults=(None,))
 Query = namedtuple("Query", "id run")
+Scan = namedtuple("Scan", "read pending")
 
 
 def cache_directory(home: str, env: dict) -> str:
@@ -67,8 +68,8 @@ def discover(source, cutoff: float) -> list:
     return sorted(found.items())
 
 
-def scan(connection: sqlite3.Connection, sources, now=None, budget: int = BUDGET_BYTES) -> int:
-    """Scan each source once and return the bytes of new log data read."""
+def scan(connection: sqlite3.Connection, sources, now=None, budget: int = BUDGET_BYTES) -> Scan:
+    """Scan each source once; report the new bytes read and whether budgeted work remains."""
     moment = time.time() if now is None else now
     cutoff = moment - STATE_DAYS * 86400
     attempted = dict(connection.execute("SELECT path, attempted FROM files"))
@@ -79,16 +80,26 @@ def scan(connection: sqlite3.Connection, sources, now=None, budget: int = BUDGET
         else:
             files.extend((path, metadata, source) for path, metadata in discover(source, cutoff))
     read_bytes = 0
-    for path, metadata, source in sorted(files, key=lambda entry: (attempted.get(entry[0], 0), entry[0])):
+    pending = False
+    ordered = sorted(files, key=lambda entry: (attempted.get(entry[0], 0), entry[0]))
+    for index, (path, metadata, source) in enumerate(ordered):
         if read_bytes >= budget:
+            pending = pending or any(_has_work(connection, item[0], item[1]) for item in ordered[index:])
             break
-        read_bytes += _scan_file(connection, path, metadata, source, budget - read_bytes, moment)
+        consumed, finished = _scan_file(connection, path, metadata, source, budget - read_bytes, moment)
+        read_bytes += consumed
+        pending = pending or not finished
     for source in queries:
         _scan_query(connection, source, cutoff)
     connection.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
     connection.commit()
     _forget_missing(connection)
-    return read_bytes
+    return Scan(read_bytes, pending)
+
+
+def _has_work(connection, path, metadata) -> bool:
+    offset, skip, _ = _resume(connection, path, metadata)
+    return offset + skip < metadata.st_size
 
 
 def _scan_query(connection, source, cutoff) -> None:
@@ -101,7 +112,7 @@ def _scan_query(connection, source, cutoff) -> None:
     connection.commit()
 
 
-def _scan_file(connection, path, metadata, source, budget, moment) -> int:
+def _scan_file(connection, path, metadata, source, budget, moment):
     offset, skip, state = _resume(connection, path, metadata)
     remaining = [budget]
     progress = {"offset": offset, "skip": skip}
@@ -114,18 +125,19 @@ def _scan_file(connection, path, metadata, source, budget, moment) -> int:
                 start = progress["offset"] - len(line)  # _lines left progress at the end of this line
                 for event in source.parse(line, state, start) or ():
                     _write_event(connection, source.id, event, source.merge)
+            finished = remaining[0] > 0 or not handle.peek(1)
     except Exception:
         connection.rollback()
         if budget - remaining[0]:
             _mark_attempted(connection, path, metadata, moment)  # a doomed file must not starve the rest
-        return budget - remaining[0]
+        return budget - remaining[0], remaining[0] > 0
     if progress["skip"]:
         state["_skip"] = progress["skip"]  # bytes discarded from an oversized line, resumed by _resume
     connection.execute(
         "INSERT OR REPLACE INTO files(path, inode, size, mtime_ns, offset, state, attempted) VALUES(?,?,?,?,?,?,?)",
         (path, metadata.st_ino, metadata.st_size, metadata.st_mtime_ns, progress["offset"], json.dumps(state), moment))
     connection.commit()
-    return budget - remaining[0]
+    return budget - remaining[0], finished
 
 
 def _mark_attempted(connection, path, metadata, moment) -> None:
