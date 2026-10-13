@@ -18,6 +18,7 @@ when needed.
 
 ![AI usage panel with provider limits and reset times](preview.png)
 ![AI usage panel with provider limits and reset times](preview-2.png)
+![Usage tab with local token totals by day, tool, and model](preview-3.png)
 
 ## User guide
 
@@ -104,7 +105,7 @@ provider throttling.
 The panel has two tabs: **Limits** (the default) and **Usage**. The Usage tab
 reads the logs your coding tools already write on this machine and shows token
 totals for Today, 7D (the default), and 30D: a summary row, stacked per-day
-bars, totals by tool and by model, and a collapsed token breakdown with each
+bars, totals by tool and by model, and a token breakdown with each
 bucket's share. Each reading keeps token counts, model IDs, session IDs, and
 timestamps. The cache also stores each log's path — which can include project
 directory names — and its read position so scans resume; prompt content is
