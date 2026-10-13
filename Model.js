@@ -283,6 +283,20 @@ function mergeRows(previous, incoming) {
   return out
 }
 
+function restoreCache(text, enabledIds) {
+  var parsed = null
+  try {
+    parsed = JSON.parse(String(text || ""))
+  } catch (error) {
+    parsed = null
+  }
+  if (!parsed || !Array.isArray(parsed.rows)) return null
+  var refreshedAt = typeof parsed.refreshedAt === "string" ? parsed.refreshedAt : ""
+  var refreshedMs = Date.parse(refreshedAt)
+  if (!refreshedAt || isNaN(refreshedMs)) return null
+  return { rows: orderedRows(parsed.rows, enabledIds), refreshedAt: refreshedAt, refreshedMs: refreshedMs }
+}
+
 function markStale(rows) {
   var out = []
   var list = rows || []

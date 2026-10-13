@@ -923,7 +923,9 @@ class SharedTests(unittest.TestCase):
         script = source + "\nconst qml = " + json.dumps((ROOT / "BarWidget.qml").read_text()) + ";" + """
 const assert = require("node:assert/strict");
 const root = {enabledProviders:[], loadedOnce:false, refreshPending:false,
-  refreshing:false, lastAttemptMs:0, rows:[], script:"/plugin path/usage.py",
+  refreshing:false, lastAttemptMs:0, cachedAtMs:0, refreshMs:300000, rows:[], refreshedAt:"",
+  script:"/plugin path/usage.py",
+  cacheFile:{setText(text) { root.cachedText = text; }},
   checkWarnings(rows) { this.warningRows = rows; }};
 const process = {running:false};
 const Model = {orderedRows, mergeRows, markStale};
@@ -957,6 +959,23 @@ assert.equal(root.refreshPending, false);
 assert.deepEqual(process.command, ["python3", "/plugin path/usage.py", "--provider", "codex"]);
 method("applyOutput")("invalid json");
 assert.equal(root.rows[0].status, "stale");
+const cached = JSON.parse(root.cachedText);
+assert.deepEqual(cached.rows.map(row => row.provider), ["codex"]);
+assert.equal(cached.refreshedAt, "");
+root.refreshCalls = 0;
+root.refresh = function() { root.refreshCalls += 1; };
+const stale = method("refreshIfStale");
+root.lastAttemptMs = 0;
+root.cachedAtMs = Date.now();
+stale();
+assert.equal(root.refreshCalls, 0);
+root.cachedAtMs = Date.now() - 600000;
+stale();
+assert.equal(root.refreshCalls, 1);
+root.lastAttemptMs = Date.now();
+root.cachedAtMs = 0;
+stale();
+assert.equal(root.refreshCalls, 1);
 """
         subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
 
@@ -1125,6 +1144,33 @@ assert.deepEqual(moveItem(saved.providerOrder, "claude", 0), ["claude", "cursor"
 const seqOrder = {0: "cursor", 1: "codex", 2: "claude", length: 3};
 assert.deepEqual(moveItem(seqOrder, "claude", 0), ["claude", "cursor", "codex"]);
 console.log("OK");
+"""
+        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+
+    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    def test_model_restore_cache(self):
+        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        script = source + """
+const assert = require("node:assert/strict");
+const rows = [{provider:"claude", status:"ok", metrics:[{percent:42}]},
+  {provider:"codex", status:"ok", metrics:[{percent:8}]},
+  {provider:"cursor", status:"ok", metrics:[{percent:2}]}];
+const good = JSON.stringify({refreshedAt:"2026-10-12T10:00:00Z", rows});
+const restored = restoreCache(good, ["cursor", "claude"]);
+assert.deepEqual(restored.rows.map(row => row.provider), ["cursor", "claude"]);
+assert.equal(restored.rows[1].metrics[0].percent, 42);
+assert.equal(restored.refreshedAt, "2026-10-12T10:00:00Z");
+assert.equal(restored.refreshedMs, Date.parse("2026-10-12T10:00:00Z"));
+assert.deepEqual(restoreCache(good, []).rows, []);
+assert.equal(restoreCache("", ["claude"]), null);
+assert.equal(restoreCache("not json", ["claude"]), null);
+assert.equal(restoreCache("null", ["claude"]), null);
+assert.equal(restoreCache(JSON.stringify({rows}), ["claude"]), null);
+assert.equal(restoreCache(JSON.stringify({refreshedAt:"2026-10-12T10:00:00Z"}), ["claude"]), null);
+assert.equal(restoreCache(JSON.stringify({refreshedAt:"sometime", rows}), ["claude"]), null);
+assert.equal(restoreCache(JSON.stringify({refreshedAt:123, rows}), ["claude"]), null);
+assert.equal(restoreCache(JSON.stringify({refreshedAt:"2026-10-12T10:00:00Z", rows:"bad"}), ["claude"]), null);
+assert.equal(restoreCache(JSON.stringify({refreshedAt:"2026-10-12T10:00:00Z", rows:{}}), ["claude"]), null);
 """
         subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
 

@@ -12,8 +12,9 @@ reset countdowns.
 The bar shows each provider's most-used limit. Hover the widget to see what
 the percentages mean. Click it to see every available limit, your plan, and
 when your allowance resets; the header shows how long ago the reading was
-refreshed. The panel stays within 60% of the screen height and scrolls when
-needed.
+refreshed. The last reading is cached, so the bar fills in immediately after
+a shell restart. The panel stays within 60% of the screen height and scrolls
+when needed.
 
 ![AI usage panel with provider limits and reset times](preview.png)
 ![AI usage panel with provider limits and reset times](preview-2.png)
