@@ -7,8 +7,11 @@ Item {
   property string iconText: ""
   property string tooltipText: ""
   property color foreground: Color.foreground
+  property string fontFamily: Style.font.family
   property bool focusable: false
   property bool hasCursor: false
+  property real fontSize: Style.font.body
+  property real size: 22
 
   signal clicked()
 

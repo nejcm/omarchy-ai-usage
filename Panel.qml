@@ -17,17 +17,20 @@ Panel {
   property var hostWidget: null
   property double nowMs: Date.now()
   property bool settingsOpen: false
+  property string tab: "limits"
   readonly property var barIdentity: hostWidget || root
 
   readonly property var rows: hostWidget ? hostWidget.displayRows : []
   readonly property bool refreshing: hostWidget ? hostWidget.refreshing : false
   readonly property string refreshedAt: hostWidget ? hostWidget.refreshedAt : ""
+  readonly property bool localUsage: hostWidget ? hostWidget.localUsage === true : false
   readonly property color contentForeground: bar ? bar.barForeground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property color dimForeground: Qt.darker(contentForeground, 1.5)
 
   function open() {
     root.settingsOpen = false
+    root.tab = "limits"
     root.nowMs = Date.now()
     if (hostWidget && hostWidget.refreshIfStale)
       hostWidget.refreshIfStale()
@@ -65,7 +68,7 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(340))
-    contentHeight: panel.fittedContentHeight(header.height + Style.space(32) + (root.settingsOpen ? settingsContent.implicitHeight : content.implicitHeight), Math.floor(panel.screenH * 0.6))
+    contentHeight: panel.fittedContentHeight(header.height + Style.space(32) + (tabBar.visible ? tabBar.height : 0) + (root.settingsOpen ? settingsContent.implicitHeight : content.implicitHeight), Math.floor(panel.screenH * 0.6))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -158,8 +161,71 @@ Panel {
           }
         }
 
-        PanelSeparator {
-          foreground: root.contentForeground
+        Column {
+          width: parent.width
+
+          Row {
+            id: tabBar
+            readonly property var options: [
+              { value: "limits", label: "Limits" },
+              { value: "usage", label: "Usage" }
+            ]
+            readonly property string value: root.tab
+            signal changed(string value)
+
+            visible: root.localUsage && !root.settingsOpen
+            spacing: Style.space(16)
+            onChanged: function (value) {
+              root.tab = value
+            }
+
+            Repeater {
+              model: tabBar.options
+
+              delegate: Item {
+                id: tabItem
+                required property var modelData
+                readonly property bool selected: modelData.value === tabBar.value
+                width: tabLabel.implicitWidth
+                height: tabLabel.implicitHeight + Style.space(8)
+                activeFocusOnTab: true
+                Accessible.role: Accessible.PageTab
+                Accessible.name: modelData.label
+                Keys.onReturnPressed: tabBar.changed(modelData.value)
+                Keys.onSpacePressed: tabBar.changed(modelData.value)
+
+                Text {
+                  id: tabLabel
+                  text: tabItem.modelData.label
+                  color: tabItem.selected || tabMouse.containsMouse || tabItem.activeFocus ? root.contentForeground : root.dimForeground
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.body
+                  font.bold: tabItem.selected
+                }
+
+                Rectangle {
+                  anchors.bottom: parent.bottom
+                  width: parent.width
+                  height: 2
+                  visible: tabItem.selected
+                  color: root.contentForeground
+                }
+
+                MouseArea {
+                  id: tabMouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: tabBar.changed(tabItem.modelData.value)
+                }
+              }
+            }
+          }
+
+          PanelSeparator {
+            width: parent.width
+            foreground: root.contentForeground
+          }
         }
 
         Flickable {
@@ -189,198 +255,213 @@ Panel {
             visible: !root.settingsOpen
             spacing: Style.space(16)
 
-            Text {
-              visible: root.rows.length === 0
+            Column {
+              id: limitsTab
               width: parent.width
-              text: root.hostWidget && root.hostWidget.enabledProviders.length === 0 ? "No providers enabled" : root.refreshing ? "Loading…" : "No usage data yet"
-              color: root.dimForeground
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.body
-            }
+              visible: !root.localUsage || root.tab === "limits"
+              spacing: Style.space(16)
 
-            Button {
-              visible: root.hostWidget && root.hostWidget.enabledProviders.length === 0
-              text: "Open settings"
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              focusable: true
-              onClicked: root.showSettings(true)
-            }
+              Text {
+                visible: root.rows.length === 0
+                width: parent.width
+                text: root.hostWidget && root.hostWidget.enabledProviders.length === 0 ? "No providers enabled" : root.refreshing ? "Loading…" : "No usage data yet"
+                color: root.dimForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.body
+              }
 
-            Repeater {
-              model: root.rows
+              Button {
+                visible: root.hostWidget && root.hostWidget.enabledProviders.length === 0
+                text: "Open settings"
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                focusable: true
+                onClicked: root.showSettings(true)
+              }
 
-              delegate: Column {
-                id: card
-                required property var modelData
-                width: content.width
-                spacing: Style.space(4)
+              Repeater {
+                model: root.rows
 
-                Item {
-                  width: parent.width
-                  height: nameText.implicitHeight
+                delegate: Column {
+                  id: card
+                  required property var modelData
+                  width: content.width
+                  spacing: Style.space(4)
 
-                  Image {
-                    id: nameLogo
-                    anchors.left: parent.left
-                    anchors.verticalCenter: nameText.verticalCenter
-                    width: nameText.implicitHeight
-                    height: width
-                    fillMode: Image.PreserveAspectFit
-                    sourceSize: Qt.size(-1, height * 2)
-                    source: Qt.resolvedUrl("assets/" + Model.panelLogo(card.modelData.provider))
-                  }
+                  Item {
+                    width: parent.width
+                    height: nameText.implicitHeight
 
-                  Text {
-                    id: nameText
-                    anchors.left: nameLogo.right
-                    anchors.leftMargin: Style.space(8)
-                    text: card.modelData.name
-                    color: root.contentForeground
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.subtitle
-                    font.bold: true
-                  }
-
-                  Text {
-                    anchors.right: parent.right
-                    anchors.verticalCenter: nameText.verticalCenter
-                    text: Model.planText(card.modelData)
-                    color: root.dimForeground
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.caption
-                  }
-                }
-
-                Text {
-                  id: statusLine
-                  visible: Model.statusText(card.modelData) !== ""
-                  width: parent.width
-                  text: Model.statusText(card.modelData)
-                  color: root.dimForeground
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.caption
-                  wrapMode: Text.WordWrap
-
-                  HoverHandler {
-                    id: statusHover
-                  }
-
-                  PanelToolTip {
-                    visible: statusHover.hovered && Model.statusDetail(card.modelData) !== statusLine.text
-                    text: Model.statusDetail(card.modelData)
-                    fontFamily: root.contentFontFamily
-                  }
-                }
-
-                Text {
-                  visible: Model.statusHint(card.modelData) !== ""
-                  width: parent.width
-                  text: Model.statusHint(card.modelData)
-                  color: root.dimForeground
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.caption
-                  wrapMode: Text.WordWrap
-                }
-
-                Repeater {
-                  model: card.modelData.metrics
-
-                  delegate: Column {
-                    id: metric
-                    required property var modelData
-                    width: card.width
-                    spacing: Style.space(4)
-
-                    Item {
-                      width: parent.width
-                      height: metricLabel.implicitHeight
-
-                      Text {
-                        id: metricLabel
-                        anchors.left: parent.left
-                        text: metric.modelData.label
-                        color: root.contentForeground
-                        font.family: root.contentFontFamily
-                        font.pixelSize: Style.font.caption
-                      }
-
-                      Text {
-                        anchors.right: parent.right
-                        anchors.verticalCenter: metricLabel.verticalCenter
-                        text: Model.percentText(metric.modelData.percent) + " used"
-                        color: root.hostWidget && root.hostWidget.colorWarnings && Number(metric.modelData.percent) >= root.hostWidget.warningThreshold ? Model.usageColor(100) : root.contentForeground
-                        font.family: root.contentFontFamily
-                        font.pixelSize: Style.font.caption
-                      }
-                    }
-
-                    Item {
-                      id: meter
-                      width: parent.width
-                      height: Style.space(7)
-                      readonly property real gap: Style.space(3)
-                      readonly property real fillWidth: Math.round(width * Math.min(1, Math.max(0, Number(metric.modelData.percent || 0) / 100)))
-                      readonly property color fillColor: root.hostWidget && root.hostWidget.colorWarnings && Number(metric.modelData.percent) >= root.hostWidget.warningThreshold ? Model.usageColor(100) : Model.usageColor(metric.modelData.percent)
-
-                      Rectangle {
-                        width: meter.fillWidth
-                        height: parent.height
-                        radius: Style.space(2)
-                        gradient: Gradient {
-                          orientation: Gradient.Vertical
-                          GradientStop { position: 0; color: Qt.lighter(meter.fillColor, 1.12) }
-                          GradientStop { position: 1; color: Qt.darker(meter.fillColor, 1.08) }
-                        }
-
-                        Behavior on width {
-                          NumberAnimation {
-                            duration: 250
-                            easing.type: Easing.OutCubic
-                          }
-                        }
-                      }
-
-                      Rectangle {
-                        x: meter.fillWidth > 0 ? meter.fillWidth + meter.gap : 0
-                        width: Math.max(0, meter.width - x)
-                        height: parent.height
-                        radius: Style.space(2)
-                        color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.12)
-                      }
-
-                      Rectangle {
-                        readonly property real elapsed: Model.elapsedFraction(metric.modelData, root.nowMs)
-                        visible: elapsed >= 0
-                        x: Math.min(meter.width - width, Math.max(0, Math.round(meter.width * elapsed) - width / 2))
-                        y: -Style.space(2)
-                        width: Style.space(2)
-                        height: parent.height + Style.space(4)
-                        color: "white"
-                      }
+                    Image {
+                      id: nameLogo
+                      anchors.left: parent.left
+                      anchors.verticalCenter: nameText.verticalCenter
+                      width: nameText.implicitHeight
+                      height: width
+                      fillMode: Image.PreserveAspectFit
+                      sourceSize: Qt.size(-1, height * 2)
+                      source: Qt.resolvedUrl("assets/" + Model.panelLogo(card.modelData.provider))
                     }
 
                     Text {
-                      visible: metric.modelData.resetsAt !== ""
-                      text: "resets in " + Model.resetText(metric.modelData.resetsAt, root.nowMs)
+                      id: nameText
+                      anchors.left: nameLogo.right
+                      anchors.leftMargin: Style.space(8)
+                      text: card.modelData.name
+                      color: root.contentForeground
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.subtitle
+                      font.bold: true
+                    }
+
+                    Text {
+                      anchors.right: parent.right
+                      anchors.verticalCenter: nameText.verticalCenter
+                      text: Model.planText(card.modelData)
                       color: root.dimForeground
                       font.family: root.contentFontFamily
                       font.pixelSize: Style.font.caption
                     }
                   }
+
+                  Text {
+                    id: statusLine
+                    visible: Model.statusText(card.modelData) !== ""
+                    width: parent.width
+                    text: Model.statusText(card.modelData)
+                    color: root.dimForeground
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.caption
+                    wrapMode: Text.WordWrap
+
+                    HoverHandler {
+                      id: statusHover
+                    }
+
+                    PanelToolTip {
+                      visible: statusHover.hovered && Model.statusDetail(card.modelData) !== statusLine.text
+                      text: Model.statusDetail(card.modelData)
+                      fontFamily: root.contentFontFamily
+                    }
+                  }
+
+                  Text {
+                    visible: Model.statusHint(card.modelData) !== ""
+                    width: parent.width
+                    text: Model.statusHint(card.modelData)
+                    color: root.dimForeground
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.caption
+                    wrapMode: Text.WordWrap
+                  }
+
+                  Repeater {
+                    model: card.modelData.metrics
+
+                    delegate: Column {
+                      id: metric
+                      required property var modelData
+                      width: card.width
+                      spacing: Style.space(4)
+
+                      Item {
+                        width: parent.width
+                        height: metricLabel.implicitHeight
+
+                        Text {
+                          id: metricLabel
+                          anchors.left: parent.left
+                          text: metric.modelData.label
+                          color: root.contentForeground
+                          font.family: root.contentFontFamily
+                          font.pixelSize: Style.font.caption
+                        }
+
+                        Text {
+                          anchors.right: parent.right
+                          anchors.verticalCenter: metricLabel.verticalCenter
+                          text: Model.percentText(metric.modelData.percent) + " used"
+                          color: root.hostWidget && root.hostWidget.colorWarnings && Number(metric.modelData.percent) >= root.hostWidget.warningThreshold ? Model.usageColor(100) : root.contentForeground
+                          font.family: root.contentFontFamily
+                          font.pixelSize: Style.font.caption
+                        }
+                      }
+
+                      Item {
+                        id: meter
+                        width: parent.width
+                        height: Style.space(7)
+                        readonly property real gap: Style.space(3)
+                        readonly property real fillWidth: Math.round(width * Math.min(1, Math.max(0, Number(metric.modelData.percent || 0) / 100)))
+                        readonly property color fillColor: root.hostWidget && root.hostWidget.colorWarnings && Number(metric.modelData.percent) >= root.hostWidget.warningThreshold ? Model.usageColor(100) : Model.usageColor(metric.modelData.percent)
+
+                        Rectangle {
+                          width: meter.fillWidth
+                          height: parent.height
+                          radius: Style.space(2)
+                          gradient: Gradient {
+                            orientation: Gradient.Vertical
+                            GradientStop { position: 0; color: Qt.lighter(meter.fillColor, 1.12) }
+                            GradientStop { position: 1; color: Qt.darker(meter.fillColor, 1.08) }
+                          }
+
+                          Behavior on width {
+                            NumberAnimation {
+                              duration: 250
+                              easing.type: Easing.OutCubic
+                            }
+                          }
+                        }
+
+                        Rectangle {
+                          x: meter.fillWidth > 0 ? meter.fillWidth + meter.gap : 0
+                          width: Math.max(0, meter.width - x)
+                          height: parent.height
+                          radius: Style.space(2)
+                          color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.12)
+                        }
+
+                        Rectangle {
+                          readonly property real elapsed: Model.elapsedFraction(metric.modelData, root.nowMs)
+                          visible: elapsed >= 0
+                          x: Math.min(meter.width - width, Math.max(0, Math.round(meter.width * elapsed) - width / 2))
+                          y: -Style.space(2)
+                          width: Style.space(2)
+                          height: parent.height + Style.space(4)
+                          color: "white"
+                        }
+                      }
+
+                      Text {
+                        visible: metric.modelData.resetsAt !== ""
+                        text: "resets in " + Model.resetText(metric.modelData.resetsAt, root.nowMs)
+                        color: root.dimForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                      }
+                    }
+                  }
                 }
+              }
+
+              Button {
+                visible: Model.anyNeedsSignIn(root.rows)
+                text: "Troubleshooting"
+                iconText: "↗"
+                tooltipText: Model.TROUBLESHOOTING_URL
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                focusable: true
+                onClicked: Qt.openUrlExternally(Model.TROUBLESHOOTING_URL)
               }
             }
 
-            Button {
-              visible: Model.anyNeedsSignIn(root.rows)
-              text: "Troubleshooting"
-              iconText: "↗"
-              tooltipText: Model.TROUBLESHOOTING_URL
+            LocalUsage {
+              width: parent.width
+              visible: root.localUsage && root.tab === "usage"
+              hostWidget: root.hostWidget
               foreground: root.contentForeground
               fontFamily: root.contentFontFamily
-              focusable: true
-              onClicked: Qt.openUrlExternally(Model.TROUBLESHOOTING_URL)
             }
           }
         }

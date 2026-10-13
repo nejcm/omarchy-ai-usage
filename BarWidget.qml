@@ -11,9 +11,12 @@ BarWidget {
   moduleName: "io.github.nejcm.ai-usage"
 
   property var rows: []
+  property var usage: null
   property string refreshedAt: ""
   property bool refreshing: false
   property bool loadedOnce: false
+  property bool usagePending: false
+  property string usageSelectionKey: ""
   property double lastAttemptMs: 0
   property double cachedAtMs: 0
   property bool cacheChecked: false
@@ -27,6 +30,7 @@ BarWidget {
   readonly property string displayMode: setting("displayMode", Model.SETTING_DEFAULTS.displayMode)
   readonly property bool colorWarnings: setting("colorWarnings", Model.SETTING_DEFAULTS.colorWarnings) === true
   readonly property bool desktopNotifications: setting("desktopNotifications", Model.SETTING_DEFAULTS.desktopNotifications) === true
+  readonly property bool localUsage: setting("localUsage", Model.SETTING_DEFAULTS.localUsage) === true
   readonly property int warningThreshold: Model.warningThreshold(setting("warningThreshold", Model.SETTING_DEFAULTS.warningThreshold))
   readonly property int refreshMs: Model.refreshSeconds(setting("refreshIntervalSec", Model.SETTING_DEFAULTS.refreshIntervalSec)) * 1000
   readonly property string script: Qt.resolvedUrl("usage.py").toString().replace("file://", "")
@@ -92,6 +96,23 @@ BarWidget {
     usageProcess.running = true
   }
 
+  function refreshUsage() {
+    if (!root.localUsage || root.enabledProviders.length === 0) {
+      localUsageProcess.running = false
+      return
+    }
+    if (localUsageProcess.running) {
+      usagePending = true
+      return
+    }
+    usagePending = false
+    usageSelectionKey = root.selectionKey
+    var command = ["python3", root.script, "--usage"]
+    for (var i = 0; i < enabledProviders.length; i++) command.push("--provider", enabledProviders[i])
+    localUsageProcess.command = command
+    localUsageProcess.running = true
+  }
+
   function restoreCache(text) {
     var cached = root.rows.length === 0 ? Model.restoreCache(text) : null
     if (cached && cached.rows.length > 0) {
@@ -107,6 +128,7 @@ BarWidget {
     var cachedMs = displayRows.length === enabledProviders.length ? cachedAtMs : 0
     var lastMs = Math.max(lastAttemptMs, cachedMs)
     if (lastMs === 0 || Date.now() - lastMs >= refreshMs) refresh()
+    else if (root.usage === null) Qt.callLater(root.refreshUsage)
   }
 
   function applyOutput(text) {
@@ -133,8 +155,26 @@ BarWidget {
     root.checkWarnings(incoming)
   }
 
+  function applyUsageOutput(text) {
+    if (root.usageSelectionKey !== root.selectionKey) return
+    var parsed = null
+    try {
+      parsed = JSON.parse(String(text || ""))
+    } catch (error) {
+      parsed = null
+    }
+    if (parsed && parsed.usage) root.usage = parsed.usage
+  }
+
   onSelectionKeyChanged: {
     root.rows = Model.orderedRows(root.rows, root.enabledProviders)
+    root.usage = null
+    if (localUsageProcess.running) {
+      localUsageProcess.running = false
+      usagePending = true
+    } else {
+      Qt.callLater(root.refreshUsage)
+    }
     if (root.enabledProviders.length === 0) root.loadedOnce = true
     if (root.lastAttemptMs > 0 || root.loadedOnce) Qt.callLater(root.refresh)
     // Newly enabled providers fetch only if the fresh cache does not cover them.
@@ -173,6 +213,14 @@ BarWidget {
 
   onBarChanged: injectPanel()
   onSettingsChanged: injectPanel()
+  onLocalUsageChanged: {
+    if (root.localUsage) {
+      Qt.callLater(root.refreshUsage)
+      return
+    }
+    localUsageProcess.running = false
+    root.usage = null
+  }
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -188,6 +236,7 @@ BarWidget {
       root.refreshing = false
       if (exitCode !== 0 && root.rows.length > 0) root.rows = Model.markStale(root.rows)
       if (root.refreshPending) Qt.callLater(root.refresh)
+      root.refreshUsage()
     }
   }
 
@@ -196,6 +245,25 @@ BarWidget {
     interval: 60000
     running: usageProcess.running
     onTriggered: usageProcess.running = false
+  }
+
+  Process {
+    id: localUsageProcess
+    command: ["python3", root.script, "--usage"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.applyUsageOutput(text)
+    }
+    onExited: function(exitCode, exitStatus) {
+        if (root.usagePending) Qt.callLater(root.refreshUsage)
+    }
+  }
+
+  // A cold scan is budgeted at 256 MiB of reads; cap the whole run well above that.
+  Timer {
+    interval: 120000
+    running: localUsageProcess.running
+    onTriggered: localUsageProcess.running = false
   }
 
   FileView {
