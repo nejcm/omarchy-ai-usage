@@ -93,7 +93,7 @@ BarWidget {
   }
 
   function restoreCache(text) {
-    var cached = root.rows.length === 0 ? Model.restoreCache(text, root.enabledProviders) : null
+    var cached = root.rows.length === 0 ? Model.restoreCache(text) : null
     if (cached && cached.rows.length > 0) {
       root.rows = cached.rows
       root.refreshedAt = cached.refreshedAt

@@ -997,6 +997,23 @@ restore(JSON.stringify({refreshedAt:"2020-01-01T00:00:00Z",
 assert.deepEqual(root.rows.map(row => row.provider), ["codex"]);
 assert.equal(root.refreshedAt, "2020-01-01T00:00:00Z");
 assert.equal(root.cachedAtMs, Date.parse("2020-01-01T00:00:00Z"));
+function handler(name) {
+  const start = qml.indexOf("  " + name + ": {");
+  const end = qml.indexOf("\\n  }", start) + 4;
+  assert(start >= 0 && end > start);
+  return new Function("root", "usageProcess", "Model",
+    "with (root) { return " + qml.slice(start, end).replace(name + ": {", "(function() {") + ") }")(root, process, Model);
+}
+root.rows = [];
+root.enabledProviders = ["codex"];
+root.lastAttemptMs = 0;
+root.loadedOnce = false;
+restore(JSON.stringify({refreshedAt:"2020-01-01T00:00:00Z",
+  rows:[{provider:"claude", status:"ok", metrics:[]}]}));
+assert.deepEqual(root.rows.map(row => row.provider), ["claude"]);
+root.enabledProviders = ["codex", "claude"];
+handler("onSelectionKeyChanged")();
+assert.deepEqual(root.rows.map(row => row.provider), ["claude"]);
 """
         subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
 
@@ -1177,22 +1194,22 @@ const rows = [{provider:"claude", status:"ok", metrics:[{percent:42}]},
   {provider:"codex", status:"ok", metrics:[{percent:8}]},
   {provider:"cursor", status:"ok", metrics:[{percent:2}]}];
 const good = JSON.stringify({refreshedAt:"2020-01-01T00:00:00Z", rows});
-const restored = restoreCache(good, ["cursor", "claude"]);
-assert.deepEqual(restored.rows.map(row => row.provider), ["cursor", "claude"]);
-assert.equal(restored.rows[1].metrics[0].percent, 42);
+const restored = restoreCache(good);
+assert.deepEqual(restored.rows.map(row => row.provider), ["claude", "codex", "cursor"]);
+assert.equal(restored.rows[0].metrics[0].percent, 42);
 assert.equal(restored.refreshedAt, "2020-01-01T00:00:00Z");
 assert.equal(restored.refreshedMs, Date.parse("2020-01-01T00:00:00Z"));
-assert.deepEqual(restoreCache(good, []).rows, []);
-assert.equal(restoreCache("", ["claude"]), null);
-assert.equal(restoreCache("not json", ["claude"]), null);
-assert.equal(restoreCache("null", ["claude"]), null);
-assert.equal(restoreCache(JSON.stringify({rows}), ["claude"]), null);
-assert.equal(restoreCache(JSON.stringify({refreshedAt:"2026-10-12T10:00:00Z"}), ["claude"]), null);
-assert.equal(restoreCache(JSON.stringify({refreshedAt:"sometime", rows}), ["claude"]), null);
-assert.equal(restoreCache(JSON.stringify({refreshedAt:"2099-01-01T00:00:00Z", rows}), ["claude"]), null);
-assert.equal(restoreCache(JSON.stringify({refreshedAt:123, rows}), ["claude"]), null);
-assert.equal(restoreCache(JSON.stringify({refreshedAt:"2026-10-12T10:00:00Z", rows:"bad"}), ["claude"]), null);
-assert.equal(restoreCache(JSON.stringify({refreshedAt:"2026-10-12T10:00:00Z", rows:{}}), ["claude"]), null);
+assert.deepEqual(restoreCache(JSON.stringify({refreshedAt:"2020-01-01T00:00:00Z", rows:[null, {}, rows[0]]})).rows, [rows[0]]);
+assert.equal(restoreCache(""), null);
+assert.equal(restoreCache("not json"), null);
+assert.equal(restoreCache("null"), null);
+assert.equal(restoreCache(JSON.stringify({rows})), null);
+assert.equal(restoreCache(JSON.stringify({refreshedAt:"2026-10-12T10:00:00Z"})), null);
+assert.equal(restoreCache(JSON.stringify({refreshedAt:"sometime", rows})), null);
+assert.equal(restoreCache(JSON.stringify({refreshedAt:"2099-01-01T00:00:00Z", rows})), null);
+assert.equal(restoreCache(JSON.stringify({refreshedAt:123, rows})), null);
+assert.equal(restoreCache(JSON.stringify({refreshedAt:"2026-10-12T10:00:00Z", rows:"bad"})), null);
+assert.equal(restoreCache(JSON.stringify({refreshedAt:"2026-10-12T10:00:00Z", rows:{}})), null);
 """
         subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
 

@@ -283,7 +283,7 @@ function mergeRows(previous, incoming) {
   return out
 }
 
-function restoreCache(text, enabledIds) {
+function restoreCache(text) {
   var parsed = null
   try {
     parsed = JSON.parse(String(text || ""))
@@ -296,7 +296,8 @@ function restoreCache(text, enabledIds) {
   if (!refreshedAt || isNaN(refreshedMs)) return null
   // Reject future timestamps; a clock rollback must not suppress refreshes.
   if (refreshedMs > Date.now()) return null
-  return { rows: orderedRows(parsed.rows, enabledIds), refreshedAt: refreshedAt, refreshedMs: refreshedMs }
+  var rows = parsed.rows.filter(function(row) { return row && typeof row.provider === "string" })
+  return { rows: rows, refreshedAt: refreshedAt, refreshedMs: refreshedMs }
 }
 
 function markStale(rows) {
