@@ -2,8 +2,8 @@
 
 See how much of your AI coding subscription you've used without opening each
 provider's dashboard. AI usage adds Claude Code, Codex, OpenCode, Cursor, Grok,
-Antigravity, and Z.ai usage to the Omarchy bar, with a panel for plan limits and
-reset countdowns.
+Antigravity, and Z.ai usage to the Omarchy bar, with a panel for plan limits,
+reset countdowns, and locally-logged token usage.
 
 ```text
 [claude] 42%  [chatgpt] 18%  [opencode] 7%  [cursor] 2%  [grok] 5%  [antigravity] 12%  [z.ai] 25%
@@ -30,19 +30,20 @@ when needed.
 - Keep the last good reading visible when a provider cannot refresh, with a
   plain-language status and next step when one is known.
 
-| Provider | Usage shown |
-| --- | --- |
-| Claude Code | Session and weekly limits |
-| Codex | Session and weekly limits |
-| OpenCode Go | Session, weekly, and monthly limits |
-| Cursor | Total usage, Cursor models, and other models |
-| Grok | Weekly shared pool and pay-as-you-go cap |
-| Antigravity | Shared Gemini and Claude/GPT pools, rolling 5-hour and weekly windows |
-| Z.ai | Session and weekly limits, and monthly web searches |
+| Provider | Usage shown | Local usage |
+| --- | --- | --- |
+| Claude Code | Session and weekly limits | Yes |
+| Codex | Session and weekly limits | Yes |
+| OpenCode Go | Session, weekly, and monthly limits | Yes |
+| Cursor | Total usage, Cursor models, and other models | No |
+| Grok | Weekly shared pool and pay-as-you-go cap | No |
+| Antigravity | Shared Gemini and Claude/GPT pools, rolling 5-hour and weekly windows | No |
+| Z.ai | Session and weekly limits, and monthly web searches | No |
 
-The plugin reports subscription allowances, not token counts or estimated
-spending. A supported subscription and a local sign-in are needed for each
-provider you want to track.
+The limits view reports subscription allowances. The Usage tab reports local
+token counts read from the tools' own logs. Neither estimates spending. A
+supported subscription and a local sign-in are needed for each provider whose
+limits you track; local usage counts whatever logs exist on the machine.
 
 ### Install
 
@@ -70,8 +71,8 @@ the shell loads the plugin from it.
 ### Settings
 
 Click the cog in the panel's top-right corner. Changes apply and save
-immediately. Back returns to usage; Close dismisses the panel. Reopening
-starts on usage.
+immediately. Back returns to the selected tab; Close dismisses the panel.
+Reopening starts on Limits.
 
 | Setting | Behavior | Default |
 | --- | --- | --- |
@@ -83,6 +84,7 @@ starts on usage.
 | Warn at usage | Global threshold from 1–100% used | 80% |
 | Warning colors | Highlight limits at or above the threshold | On |
 | Desktop notifications | Notify when a limit reaches the threshold | Off |
+| Local token usage | Scan local logs and show the panel's Usage tab | On |
 | Reset to defaults | Restore provider enablement, order, navbar visibility, refresh interval, and warnings. Reset shows a separate Confirm button; confirming within five seconds applies it | — |
 
 Disabling a provider preserves its credentials and preferences. An already
@@ -96,6 +98,23 @@ across shell restarts. Limits without a reset time can notify again after a
 fresh reading falls below the threshold. Stale readings never trigger a
 notification. Shorter refresh intervals make more requests and may encounter
 provider throttling.
+
+### Local token usage
+
+The panel has two tabs: **Limits** (the default) and **Usage**. The Usage tab
+reads the logs your coding tools already write on this machine and shows token
+totals for Today, 7D (the default), and 30D: a summary row, stacked per-day
+bars, totals by tool and by model, and a collapsed token breakdown with each
+bucket's share. Each reading keeps token counts, model IDs, session IDs, and
+timestamps. The cache also stores each log's path — which can include project
+directory names — and its read position so scans resume; prompt content is
+never stored. Cached reads stay out of the headline and appear in the breakdown
+and the cache-hit share. Until the first scan finishes, the tab says
+"Scanning local logs…".
+
+Turn the **Local token usage** setting off to hide the tab and stop scanning.
+The scan follows the enabled providers and runs after each limit refresh,
+whether or not the panel is open.
 
 ### Privacy and credentials
 
@@ -119,6 +138,21 @@ renewal stays with their own tools. See [Claude OAuth refresh](#claude-oauth-ref
 | Grok | `~/.grok/auth.json` | `GROK_HOME` |
 | Antigravity | `~/.gemini/antigravity-cli/antigravity-oauth-token` | — |
 | Z.ai | `~/.chelper/config.yaml` (`api_key`), else the Z.ai `ANTHROPIC_AUTH_TOKEN` in `~/.claude/settings.json` | `CLAUDE_CONFIG_DIR` |
+
+Local usage never contacts anything: it opens the tools' logs read-only and
+aggregates the totals into `$XDG_CACHE_HOME/omarchy-ai-usage/usage.db` (default
+`~/.cache/omarchy-ai-usage/usage.db`). The database is a cache: deleting it
+rescans the surviving logs, so totals for logs a tool has already deleted are
+lost.
+
+| Provider | Local log read |
+| --- | --- |
+| Claude Code | `~/.claude/projects/**/*.jsonl` |
+| Codex | `~/.codex/sessions/**/*.jsonl`, `~/.codex/archived_sessions/**/*.jsonl` |
+| OpenCode | `~/.local/share/opencode/opencode.db` (read-only) |
+
+The `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and `XDG_DATA_HOME`/`OPENCODE_DATA_DIR`
+overrides apply here too; no other paths are read.
 
 ### Troubleshooting
 
@@ -195,8 +229,11 @@ omarchy plugin remove io.github.nejcm.ai-usage
 The shell invokes `usage.py` on load, at the chosen interval, and when the
 panel opens with stale data. Only enabled providers are passed through
 repeatable `--provider` arguments. No collector starts when all are disabled.
-Failed provider refreshes retain the last good metrics and timestamp with a
-`stale` status. Navbar visibility affects rendering only.
+A second process runs `usage.py --usage` after each quota refresh while the
+Local token usage setting is on, with its own timeout; its result stays on the
+widget, not in the quota cache. Failed provider refreshes retain the last good
+metrics and timestamp with a `stale` status. Navbar visibility affects
+rendering only.
 
 Settings use the host's `updateEntryInline` API. Warning state is saved before
 notifications are sent; the host updates the same plugin's live instances
@@ -215,11 +252,14 @@ You can inspect the normalized collector output directly:
 ```sh
 python3 usage.py --pretty
 python3 usage.py --provider codex --provider cursor --pretty
+python3 usage.py --usage --pretty
 ```
 
-These commands use your real local credentials and make provider requests.
-The Claude collector may rotate and persist OAuth credentials. Use the offline
-tests when you want checks without contacting providers.
+These commands use your real local data. The quota commands read your
+credentials and make provider requests; `--usage` reads local logs and writes
+the usage cache without contacting anything. The Claude collector may rotate
+and persist OAuth credentials. Use the offline tests when you want checks
+without contacting providers.
 
 ### Tests and checks
 
