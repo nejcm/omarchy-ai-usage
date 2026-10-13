@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS events(
 """
 
 Source = namedtuple("Source", "id patterns parse merge", defaults=(None,))
+Query = namedtuple("Query", "id run")
 
 
 def cache_directory(home: str, env: dict) -> str:
@@ -71,18 +72,33 @@ def scan(connection: sqlite3.Connection, sources, now=None, budget: int = BUDGET
     moment = time.time() if now is None else now
     cutoff = moment - STATE_DAYS * 86400
     attempted = dict(connection.execute("SELECT path, attempted FROM files"))
-    candidates = [(path, metadata, source)
-                  for source in sources for path, metadata in discover(source, cutoff)]
+    files, queries = [], []
+    for source in sources:
+        if isinstance(source, Query):
+            queries.append(source)
+        else:
+            files.extend((path, metadata, source) for path, metadata in discover(source, cutoff))
     read_bytes = 0
-    for path, metadata, source in sorted(candidates,
-                                         key=lambda entry: (attempted.get(entry[0], 0), entry[0])):
+    for path, metadata, source in sorted(files, key=lambda entry: (attempted.get(entry[0], 0), entry[0])):
         if read_bytes >= budget:
             break
         read_bytes += _scan_file(connection, path, metadata, source, budget - read_bytes, moment)
+    for source in queries:
+        _scan_query(connection, source, cutoff)
     connection.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
     connection.commit()
     _forget_missing(connection)
     return read_bytes
+
+
+def _scan_query(connection, source, cutoff) -> None:
+    try:
+        for event in source.run(cutoff) or ():
+            _write_event(connection, source.id, event, None)
+    except Exception:
+        connection.rollback()
+        return
+    connection.commit()
 
 
 def _scan_file(connection, path, metadata, source, budget, moment) -> int:
