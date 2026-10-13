@@ -14,6 +14,8 @@ Item {
   onRunningChanged: if (running) starts += 1
 
   function emitStream(text) {
-    if (stdout) stdout.streamFinished(text)
+    if (!stdout) return
+    stdout.text = text
+    stdout.streamFinished()
   }
 }

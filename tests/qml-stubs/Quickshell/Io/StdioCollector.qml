@@ -2,7 +2,7 @@ import QtQuick
 
 QtObject {
   property bool waitForEnd: false
-  property string content: ""
+  property string text: ""
 
-  signal streamFinished(string text)
+  signal streamFinished()
 }

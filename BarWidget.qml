@@ -252,12 +252,10 @@ BarWidget {
     command: ["python3", root.script, "--usage"]
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: function (text) {
-        root.applyUsageOutput(text)
-      }
+      onStreamFinished: root.applyUsageOutput(text)
     }
     onExited: function(exitCode, exitStatus) {
-      if (root.usagePending) Qt.callLater(root.refreshUsage)
+        if (root.usagePending) Qt.callLater(root.refreshUsage)
     }
   }
 
