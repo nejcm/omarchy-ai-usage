@@ -110,6 +110,8 @@ BarWidget {
 
   function applyOutput(text) {
     refreshing = false
+    // A cache write drops any in-flight read without emitting loaded/loadFailed.
+    cacheChecked = true
     var parsed = null
     try {
       parsed = JSON.parse(String(text || ""))

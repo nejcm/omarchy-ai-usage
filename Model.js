@@ -294,6 +294,8 @@ function restoreCache(text, enabledIds) {
   var refreshedAt = typeof parsed.refreshedAt === "string" ? parsed.refreshedAt : ""
   var refreshedMs = Date.parse(refreshedAt)
   if (!refreshedAt || isNaN(refreshedMs)) return null
+  // Reject future timestamps; a clock rollback must not suppress refreshes.
+  if (refreshedMs > Date.now()) return null
   return { rows: orderedRows(parsed.rows, enabledIds), refreshedAt: refreshedAt, refreshedMs: refreshedMs }
 }
 
