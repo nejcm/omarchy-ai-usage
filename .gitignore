@@ -1,4 +1,5 @@
 .reports/
+.examples/
 __pycache__/
 
 TODO.md
