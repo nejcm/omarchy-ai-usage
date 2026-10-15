@@ -5,7 +5,7 @@
 var PROVIDER_INFO = {
   claude: { name: "Claude Code", logo: "claude", mono: false, cli: "claude" },
   codex: { name: "Codex", logo: "chatgpt", mono: true, cli: "codex" },
-  opencode: { name: "OpenCode", logo: "opencode", mono: false, cli: "opencode" },
+  opencode: { name: "OpenCode", logo: "opencode", mono: true, cli: "opencode" },
   cursor: { name: "Cursor", logo: "cursor", mono: true, cli: "cursor-agent" },
   grok: { name: "Grok", logo: "grok", mono: true, cli: "grok" },
   antigravity: { name: "Antigravity", logo: "antigravity", mono: false, cli: "agy" },

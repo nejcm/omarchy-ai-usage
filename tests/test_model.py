@@ -254,7 +254,7 @@ assert.deepEqual(PROVIDERS.map(id => logo(id, false)),
 assert.deepEqual(PROVIDERS.map(id => logo(id, true)),
   ["claude.white.svg", "chatgpt.white.svg", "opencode.white.svg", "cursor.white.svg", "grok.white.svg", "antigravity.white.svg", "z.ai.white.svg"]);
 assert.deepEqual(PROVIDERS.map(panelLogo),
-  ["claude.svg", "chatgpt.white.svg", "opencode.svg", "cursor.white.svg", "grok.white.svg", "antigravity.svg", "z.ai.white.svg"]);
+  ["claude.svg", "chatgpt.white.svg", "opencode.white.svg", "cursor.white.svg", "grok.white.svg", "antigravity.svg", "z.ai.white.svg"]);
 assert.equal(logo("unknown", true), "");
 assert.equal(panelLogo("unknown"), "");
 """
