@@ -348,6 +348,19 @@ Item {
       return harness.find(panel(), function(item) { return typeof item.moveRequested === "function" && typeof item.tabRequested === "function" })
     }
 
+    function panelSurface() {
+      return harness.find(panel(), function(item) { return typeof item.fittedContentHeight === "function" })
+    }
+
+    function scrollView() {
+      return harness.find(panel(), function(item) { return item instanceof Flickable })
+    }
+
+    function fullyVisible(item) {
+      var y = item.mapToItem(scrollView(), 0, 0).y
+      return y >= 0 && y + item.height <= scrollView().height
+    }
+
     function usageButton(text) {
       return harness.find(usageTab(), function(item) { return item.text === text })
     }
@@ -724,6 +737,66 @@ Item {
       windowSelector().changed("7d")
       panelHost.enabledProviders = ["claude"]
       wait(0)
+    }
+
+    function test_cursor_scrolls_targets_into_view() {
+      panelHost.settings = {}
+      panelHost.localUsage = true
+      panelHost.enabledProviders = ["claude", "codex"]
+      panelHost.usage = usageFixture()
+      tabSelector().changed("usage")
+      panel().showSettings(false)
+      usageTab().usageFilter = ""
+      panelSurface().screenH = 1000
+      wait(50)
+      verify(panelSurface().height > 0)
+      verify(scrollView().height > 0)
+
+      var usage = usageTab()
+      keyCatcher().forceActiveFocus()
+      keyClick(Qt.Key_J)
+      keyClick(Qt.Key_J)
+      keyClick(Qt.Key_J)
+      wait(50)
+      compare(usage.cursorStop, 2)
+      verify(fullyVisible(modelsButton()), "model button visible before expansion")
+
+      keyClick(Qt.Key_Return)
+      wait(50)
+      compare(usage.modelsExpanded, true)
+      compare(visibleModelRows().length, 9)
+      verify(fullyVisible(modelsButton()), "Show less visible after expansion")
+      verify(scrollView().contentY > 0)
+
+      keyClick(Qt.Key_K)
+      keyClick(Qt.Key_K)
+      wait(50)
+      compare(usage.cursorStop, 0)
+      verify(fullyVisible(windowSelector()), "window selector visible after moving back")
+      verify(fullyVisible(toolSelector()), "tool selector visible after moving back")
+      compare(scrollView().contentY, 0)
+
+      panelSurface().screenH = 800
+      wait(50)
+      keyClick(Qt.Key_J)
+      keyClick(Qt.Key_J)
+      wait(50)
+      compare(usage.cursorStop, 2)
+      verify(fullyVisible(modelsButton()), "model button visible on the small surface")
+      verify(scrollView().contentY > 0)
+      keyClick(Qt.Key_Return)
+      wait(50)
+      verify(fullyVisible(modelsButton()), "Show less visible after expansion on the small surface")
+      keyClick(Qt.Key_K)
+      keyClick(Qt.Key_K)
+      wait(50)
+      verify(fullyVisible(windowSelector()), "window selector visible after moving back on the small surface")
+
+      usage.resetView()
+      panelSurface().screenH = 1000
+      panelHost.enabledProviders = ["claude"]
+      panel().tab = "limits"
+      wait(50)
     }
 
     function test_usage_cursor_activates_onboarding_button() {

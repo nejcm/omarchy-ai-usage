@@ -66,6 +66,12 @@ Column {
     if (root.usageVisibleModels.length > 5) stops.push({ button: modelsButton })
     return stops
   }
+  readonly property var cursorItem: {
+    var stops = root.cursorStops
+    if (root.cursorStop < 0 || root.cursorStop >= stops.length) return null
+    var stop = stops[root.cursorStop]
+    return stop.group ? stop.group : stop.button
+  }
   readonly property color dimForeground: Qt.darker(foreground, 1.5)
   spacing: Style.space(20)
 

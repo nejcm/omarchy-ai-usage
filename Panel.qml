@@ -53,6 +53,14 @@ Panel {
     return false
   }
 
+  function revealItem(item) {
+    if (!item || !item.visible) return
+    var position = item.mapToItem(content, 0, 0).y
+    if (position < scroll.contentY) scroll.contentY = position
+    else if (position + item.height > scroll.contentY + scroll.height)
+      scroll.contentY = Math.min(Math.max(0, scroll.contentHeight - scroll.height), position + item.height - scroll.height)
+  }
+
   // Keeps the reset countdowns live; Date.now() alone gives no binding dependency.
   Timer {
     interval: 30000
@@ -81,7 +89,9 @@ Panel {
         root.switchPanel(direction)
       }
       onMoveRequested: function (dx, dy) {
-        if (usageView.visible) usageView.moveCursor(dx, dy)
+        if (!usageView.visible) return
+        usageView.moveCursor(dx, dy)
+        root.revealItem(usageView.cursorItem)
       }
       onActivateRequested: {
         if (usageView.visible && usageView.cursorActive && usageView.activateCursor()) return
@@ -489,11 +499,13 @@ Panel {
         ancestor = ancestor.parent
       if (!ancestor)
         return
-      var position = item.mapToItem(settingsContent, 0, 0).y
-      if (position < scroll.contentY)
-        scroll.contentY = position
-      else if (position + item.height > scroll.contentY + scroll.height)
-        scroll.contentY = Math.min(Math.max(0, scroll.contentHeight - scroll.height), position + item.height - scroll.height)
+      root.revealItem(item)
     }
+  }
+
+  Connections {
+    target: usageView.cursorItem
+    function onYChanged() { root.revealItem(usageView.cursorItem) }
+    function onHeightChanged() { root.revealItem(usageView.cursorItem) }
   }
 }
