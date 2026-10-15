@@ -103,6 +103,7 @@ assert.equal(warningThreshold(0), 1);
 assert.equal(warningThreshold(150), 100);
 assert.equal(isWarning(rows[0], 70), true);
 assert.equal(isWarning({status:"unavailable"}, 80), false);
+assert.equal(isWarning({status:"ok", metrics:[{percent:10, windowMinutes:300}, {percent:100, windowMinutes:10080}]}, 90), true);
 const row = {provider:"codex", name:"Codex", status:"ok", metrics:[
   {label:"Session", percent:85, resetsAt:"2030-01-01T00:00:00Z"},
   {label:"Weekly", percent:90, resetsAt:"2030-01-07T00:00:00Z"}]};
@@ -150,6 +151,22 @@ assert.equal(barValue({status:"unavailable", metrics:[]}), "–");
 assert.equal(barValue({status:"ok", metrics:[]}), "–");
 assert.equal(barValue({status:"ok", metrics:[{percent:null}, {}]}), "–");
 assert.equal(barValue({status:"ok", metrics:[{percent:0}]}), "0%");
+assert.equal(barValue({status:"ok", metrics:[
+  {percent:5, windowMinutes:10080}, {percent:80, windowMinutes:300}]}), "80%");
+assert.equal(barValue({status:"ok", metrics:[
+  {percent:80, windowMinutes:0}, {percent:5, windowMinutes:300}]}), "5%");
+assert.equal(barValue({status:"ok", metrics:[
+  {percent:80, windowMinutes:-1}, {percent:5, windowMinutes:300}]}), "5%");
+assert.equal(barValue({status:"ok", metrics:[
+  {percent:80, windowMinutes:"bad"}, {percent:5, windowMinutes:300}]}), "5%");
+assert.equal(barValue({status:"ok", metrics:[
+  {percent:80}, {percent:5, windowMinutes:300}]}), "5%");
+assert.equal(barValue({status:"ok", metrics:[
+  {percent:10, windowMinutes:300}, {percent:90}]}), "10%");
+assert.equal(barValue({status:"ok", metrics:[
+  {percent:20, windowMinutes:300}, {percent:50, windowMinutes:300}]}), "50%");
+assert.equal(barValue({status:"ok", metrics:[
+  {percent:null, windowMinutes:1}, {percent:70, windowMinutes:300}]}), "70%");
 for (const [value, color] of [[0,"#4ade80"], [75,"#4ade80"],
   [75.1,"#fb923c"], [90,"#fb923c"], [90.1,"#f87171"], [100,"#f87171"]]) {
   assert.equal(usageColor(value), color);
@@ -214,9 +231,9 @@ assert.equal(expiredStale.status, "stale");
 assert.equal(statusHint(expiredStale), "Open claude to renew sign-in");
 assert.equal(connectHint(expiredStale), "Open claude to renew sign-in");
 assert.equal(anyNeedsSignIn([expiredStale]), true);
-assert.equal(barTooltip("used"), "AI usage \\u2014 percent used of each provider's most-restricted limit");
-assert.equal(barTooltip("remaining"), "AI usage \\u2014 percent remaining of each provider's most-restricted limit");
-assert.equal(barTooltip("both"), "AI usage \\u2014 percent used and remaining of each provider's most-restricted limit");
+assert.equal(barTooltip("used"), "AI usage \\u2014 percent used of each provider's shortest limit window");
+assert.equal(barTooltip("remaining"), "AI usage \\u2014 percent remaining of each provider's shortest limit window");
+assert.equal(barTooltip("both"), "AI usage \\u2014 percent used and remaining of each provider's shortest limit window");
 assert.equal(TROUBLESHOOTING_URL, "https://github.com/nejcm/omarchy-ai-usage#troubleshooting");
 """
         subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)

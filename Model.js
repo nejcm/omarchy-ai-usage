@@ -153,16 +153,25 @@ function hasData(row) {
   return !!row && (row.status === "ok" || row.status === "stale")
 }
 
-function primaryPercent(row) {
+function primaryPercent(row, highest) {
   if (!hasData(row) || !row.metrics || row.metrics.length === 0) return null
   var best = null
+  var shortest = null
+  var shortestWindow = null
   for (var i = 0; i < row.metrics.length; i++) {
-    if (row.metrics[i].percent === null || row.metrics[i].percent === undefined) continue
-    var value = Number(row.metrics[i].percent)
+    var metric = row.metrics[i]
+    if (metric.percent === null || metric.percent === undefined) continue
+    var value = Number(metric.percent)
     if (isNaN(value)) continue
     if (best === null || value > best) best = value
+    var minutes = Number(metric.windowMinutes)
+    if (!isFinite(minutes) || minutes <= 0) continue
+    if (shortestWindow === null || minutes < shortestWindow || (minutes === shortestWindow && value > shortest)) {
+      shortestWindow = minutes
+      shortest = value
+    }
   }
-  return best
+  return highest || shortest === null ? best : shortest
 }
 
 function barValue(row, mode) {
@@ -175,14 +184,14 @@ function barValue(row, mode) {
 }
 
 function barTooltip(mode) {
-  var basis = mode === "remaining" ? "percent remaining of each provider's most-restricted limit"
-    : mode === "both" ? "percent used and remaining of each provider's most-restricted limit"
-    : "percent used of each provider's most-restricted limit"
+  var basis = mode === "remaining" ? "percent remaining of each provider's shortest limit window"
+    : mode === "both" ? "percent used and remaining of each provider's shortest limit window"
+    : "percent used of each provider's shortest limit window"
   return "AI usage \u2014 " + basis
 }
 
 function isWarning(row, threshold) {
-  var value = primaryPercent(row)
+  var value = primaryPercent(row, true)
   return value !== null && value >= threshold
 }
 
