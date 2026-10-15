@@ -32,6 +32,7 @@ Panel {
     root.settingsOpen = false
     root.tab = "limits"
     root.nowMs = Date.now()
+    usageView.resetView()
     if (hostWidget && hostWidget.refreshIfStale)
       hostWidget.refreshIfStale()
     root.controller.show()
@@ -79,7 +80,13 @@ Panel {
       onTabRequested: function (direction) {
         root.switchPanel(direction)
       }
-      onActivateRequested: root.showSettings(true)
+      onMoveRequested: function (dx, dy) {
+        if (usageView.visible) usageView.moveCursor(dx, dy)
+      }
+      onActivateRequested: {
+        if (usageView.visible && usageView.cursorActive && usageView.activateCursor()) return
+        root.showSettings(true)
+      }
 
       Column {
         anchors.fill: parent
@@ -457,6 +464,7 @@ Panel {
             }
 
             LocalUsage {
+              id: usageView
               width: parent.width
               visible: root.localUsage && root.tab === "usage"
               hostWidget: root.hostWidget

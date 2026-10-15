@@ -344,6 +344,10 @@ Item {
       })
     }
 
+    function keyCatcher() {
+      return harness.find(panel(), function(item) { return typeof item.moveRequested === "function" && typeof item.tabRequested === "function" })
+    }
+
     function usageButton(text) {
       return harness.find(usageTab(), function(item) { return item.text === text })
     }
@@ -430,6 +434,7 @@ Item {
       verify(windowSelector() !== null)
       verify(tabSelector() !== null)
       verify(toolSelector() !== null)
+      verify(keyCatcher() !== null)
     }
 
     function test_defaults_to_limits_and_seven_days() {
@@ -511,11 +516,6 @@ Item {
       modelsButton().clicked()
       compare(usageTab().modelsExpanded, false)
       compare(visibleModelRows().length, 5)
-
-      modelsButton().forceActiveFocus()
-      keyClick(Qt.Key_Return)
-      compare(usageTab().modelsExpanded, true)
-      compare(visibleModelRows().length, 9)
 
       windowSelector().changed("today")
       wait(0)
@@ -668,6 +668,145 @@ Item {
       compare(panel().settingsOpen, false)
       panelHost.enabledProviders = ["claude"]
       panelHost.usage = { scanning: false, windows: {} }
+    }
+
+    function test_usage_cursor_keyboard_reaches_controls() {
+      panelHost.settings = {}
+      panelHost.localUsage = true
+      panelHost.enabledProviders = ["claude", "codex"]
+      panelHost.usage = usageFixture()
+      tabSelector().changed("usage")
+      panel().showSettings(false)
+      usageTab().usageFilter = ""
+      wait(0)
+      var usage = usageTab()
+      compare(usage.cursorActive, false)
+      keyCatcher().forceActiveFocus()
+      compare(keyCatcher().activeFocus, true)
+
+      keyClick(Qt.Key_J)
+      compare(usage.cursorActive, true)
+      compare(usage.cursorStop, 0)
+      compare(windowSelector().cursorIndex, 1)
+
+      keyClick(Qt.Key_J)
+      compare(usage.cursorStop, 1)
+      compare(toolSelector().cursorIndex, 0)
+
+      keyClick(Qt.Key_L)
+      compare(usage.cursorChip, 1)
+      compare(toolSelector().cursorIndex, 1)
+
+      keyClick(Qt.Key_Space)
+      compare(usage.usageFilter, "claude")
+      compare(usage.usageTool, "claude")
+      compare(usage.cursorActive, false)
+
+      keyClick(Qt.Key_J)
+      keyClick(Qt.Key_J)
+      keyClick(Qt.Key_J)
+      compare(usage.cursorStop, 2)
+      compare(modelsButton().hasCursor, true)
+      keyClick(Qt.Key_Return)
+      compare(usage.modelsExpanded, true)
+      compare(visibleModelRows().length, 7)
+
+      keyClick(Qt.Key_H)
+      keyClick(Qt.Key_K)
+      compare(usage.cursorStop, 0)
+      compare(usage.cursorChip, 1)
+      keyClick(Qt.Key_L)
+      compare(usage.cursorChip, 2)
+      keyClick(Qt.Key_Return)
+      compare(windowSelector().value, "30d")
+      compare(panelHost.settings.usageWindow, "30d")
+      usage.resetView()
+      windowSelector().changed("7d")
+      panelHost.enabledProviders = ["claude"]
+      wait(0)
+    }
+
+    function test_usage_cursor_activates_onboarding_button() {
+      panelHost.settings = {}
+      panelHost.localUsage = true
+      panelHost.enabledProviders = ["claude"]
+      panelHost.usage = { scanning: false, windows: { "30d": { providers: [], models: [] } } }
+      tabSelector().changed("usage")
+      panel().showSettings(false)
+      wait(0)
+      var usage = usageTab()
+      compare(usage.usageOnboarding, true)
+      keyCatcher().forceActiveFocus()
+      keyClick(Qt.Key_J)
+      keyClick(Qt.Key_J)
+      keyClick(Qt.Key_J)
+      compare(usage.cursorStop, 2)
+      compare(usageButton("Open settings").hasCursor, true)
+      keyClick(Qt.Key_Return)
+      compare(panel().settingsOpen, true)
+      panel().showSettings(false)
+      usage.resetView()
+      panelHost.usage = { scanning: false, windows: {} }
+    }
+
+    function test_tab_and_escape_dispatch_from_normal_focus() {
+      panelHost.settings = {}
+      panelHost.localUsage = true
+      tabSelector().changed("usage")
+      panel().showSettings(false)
+      var calls = []
+      panel().bar = {
+        barForeground: "#ffffff",
+        fontFamily: "monospace",
+        switchPanelFrom: function (identity, direction) { calls.push(direction); return true }
+      }
+      keyCatcher().forceActiveFocus()
+      keyClick(Qt.Key_Tab)
+      compare(calls.length, 1)
+      compare(calls[0], 1)
+      keyClick(Qt.Key_Backtab)
+      compare(calls.length, 2)
+      compare(calls[1], -1)
+      panel().opened = true
+      keyClick(Qt.Key_Return)
+      compare(panel().settingsOpen, true)
+      panel().showSettings(false)
+      keyClick(Qt.Key_Escape)
+      compare(panel().opened, false)
+      panel().bar = null
+    }
+
+    function test_filter_and_expansion_reset_on_reopen() {
+      panelHost.settings = {}
+      panelHost.localUsage = true
+      panelHost.enabledProviders = ["claude", "codex"]
+      panelHost.usage = usageFixture()
+      tabSelector().changed("usage")
+      panel().showSettings(false)
+      usageTab().usageFilter = ""
+      wait(0)
+      toolSelector().changed("codex")
+      usageTab().modelsExpanded = true
+      compare(usageTab().usageFilter, "codex")
+      compare(usageTab().modelsExpanded, true)
+
+      tabSelector().changed("limits")
+      panel().showSettings(true)
+      panel().showSettings(false)
+      tabSelector().changed("usage")
+      compare(usageTab().usageFilter, "codex")
+      compare(usageTab().modelsExpanded, true)
+
+      panel().close()
+      panel().open()
+      compare(usageTab().usageFilter, "")
+      compare(usageTab().modelsExpanded, false)
+      compare(usageTab().cursorActive, false)
+      compare(panel().tab, "limits")
+      tabSelector().changed("usage")
+      wait(0)
+      compare(usageTab().usageTool, "")
+      panelHost.enabledProviders = ["claude"]
     }
   }
 }

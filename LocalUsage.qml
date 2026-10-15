@@ -11,6 +11,8 @@ Column {
   property string fontFamily: Style.font.family
   property bool modelsExpanded: false
   property string usageFilter: ""
+  property int cursorStop: -1
+  property int cursorChip: 0
   readonly property var usage: hostWidget ? hostWidget.usage : null
   readonly property string usageWindowName: Model.usageWindowName(hostWidget ? hostWidget.setting("usageWindow", Model.SETTING_DEFAULTS.usageWindow) : Model.SETTING_DEFAULTS.usageWindow)
   readonly property var usageWindow: usage && usage.windows ? (usage.windows[usageWindowName] || usage.windows["7d"] || null) : null
@@ -55,12 +57,93 @@ Column {
     var breakdown = root.usageBreakdown
     return breakdown ? Number(breakdown.input) + Number(breakdown.cacheRead) + Number(breakdown.cacheWrite) + Number(breakdown.output) + Number(breakdown.reasoning) : 0
   }
+  readonly property bool cursorActive: root.cursorStop >= 0
+  readonly property var cursorStops: {
+    var stops = [{ group: windowSelector }]
+    if (root.usageFilterOptions.length > 1) stops.push({ group: toolSelector })
+    if (root.usageOnboarding) stops.push({ button: settingsButton })
+    if (root.usageToolEmpty) stops.push({ button: showAllButton })
+    if (root.usageVisibleModels.length > 5) stops.push({ button: modelsButton })
+    return stops
+  }
   readonly property color dimForeground: Qt.darker(foreground, 1.5)
   spacing: Style.space(20)
 
   onUsageWindowNameChanged: root.modelsExpanded = false
   onUsageFilterChanged: root.modelsExpanded = false
   onUsageEnabledToolIdsChanged: if (root.usageFilter !== "" && root.usageEnabledToolIds.indexOf(root.usageFilter) < 0) root.usageFilter = ""
+  onCursorStopsChanged: root.deactivateCursor()
+
+  function cursorChipIndex(group) {
+    var stops = root.cursorStops
+    for (var i = 0; i < stops.length; i++) {
+      if (stops[i].group === group) return root.cursorStop === i ? root.cursorChip : -1
+    }
+    return -1
+  }
+
+  function cursorOn(button) {
+    var stops = root.cursorStops
+    for (var i = 0; i < stops.length; i++) {
+      if (stops[i].button === button) return root.cursorStop === i
+    }
+    return false
+  }
+
+  function landCursor() {
+    var stop = root.cursorStops[root.cursorStop]
+    root.cursorChip = stop && stop.group ? Math.max(0, stop.group.selectedOptionIndex()) : 0
+  }
+
+  function moveCursor(dx, dy) {
+    var stops = root.cursorStops
+    if (stops.length === 0) return
+    if (!root.cursorActive) {
+      root.cursorStop = dy < 0 || dx < 0 ? stops.length - 1 : 0
+      root.landCursor()
+      return
+    }
+    if (dy === 0 && dx !== 0) {
+      var stop = stops[root.cursorStop]
+      var count = stop.group ? stop.group.options.length : 0
+      if (count > 0) {
+        root.cursorChip = (root.cursorChip + (dx > 0 ? 1 : -1) + count) % count
+        return
+      }
+    }
+    var step = dy !== 0 ? dy : dx
+    if (step === 0) return
+    root.cursorStop = (root.cursorStop + (step > 0 ? 1 : -1) + stops.length) % stops.length
+    root.landCursor()
+  }
+
+  function activateCursor() {
+    var stops = root.cursorStops
+    if (root.cursorStop < 0 || root.cursorStop >= stops.length) return false
+    var stop = stops[root.cursorStop]
+    if (stop.group) {
+      var options = stop.group.options
+      if (root.cursorChip < 0 || root.cursorChip >= options.length) return false
+      stop.group.changed(stop.group.optionValue(options[root.cursorChip]))
+      return true
+    }
+    if (stop.button) {
+      stop.button.clicked()
+      return true
+    }
+    return false
+  }
+
+  function deactivateCursor() {
+    root.cursorStop = -1
+    root.cursorChip = 0
+  }
+
+  function resetView() {
+    root.usageFilter = ""
+    root.modelsExpanded = false
+    root.deactivateCursor()
+  }
 
   component SectionLabel: Text {
     color: root.foreground
@@ -93,6 +176,7 @@ Column {
   }
 
   ButtonGroup {
+    id: windowSelector
     width: parent.width
     options: [
       { value: "today", label: "Today" },
@@ -100,6 +184,7 @@ Column {
       { value: "30d", label: "30D" }
     ]
     value: root.usageWindowName
+    cursorIndex: root.cursorChipIndex(windowSelector)
     foreground: root.foreground
     fontFamily: root.fontFamily
     onChanged: function (value) {
@@ -108,10 +193,12 @@ Column {
   }
 
   ButtonGroup {
+    id: toolSelector
     visible: root.usageFilterOptions.length > 1
     width: parent.width
     options: root.usageFilterOptions
     value: root.usageTool
+    cursorIndex: root.cursorChipIndex(toolSelector)
     foreground: root.foreground
     fontFamily: root.fontFamily
     onChanged: function (value) {
@@ -130,8 +217,10 @@ Column {
   }
 
   Button {
+    id: settingsButton
     visible: root.usageOnboarding
     text: "Open settings"
+    hasCursor: root.cursorOn(settingsButton)
     foreground: root.foreground
     fontFamily: root.fontFamily
     focusable: true
@@ -139,8 +228,10 @@ Column {
   }
 
   Button {
+    id: showAllButton
     visible: root.usageToolEmpty
     text: "Show all"
+    hasCursor: root.cursorOn(showAllButton)
     foreground: root.foreground
     fontFamily: root.fontFamily
     focusable: true
@@ -393,8 +484,10 @@ Column {
     }
 
     Button {
+      id: modelsButton
       visible: root.usageVisibleModels.length > 5
       text: root.modelsExpanded ? "Show less" : (root.usageVisibleModels.length - 5) + " more"
+      hasCursor: root.cursorOn(modelsButton)
       foreground: root.foreground
       fontFamily: root.fontFamily
       focusable: true
