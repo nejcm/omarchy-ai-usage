@@ -462,6 +462,7 @@ Panel {
               hostWidget: root.hostWidget
               foreground: root.contentForeground
               fontFamily: root.contentFontFamily
+              onOpenSettingsRequested: root.showSettings(true)
             }
           }
         }

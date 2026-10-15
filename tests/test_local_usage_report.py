@@ -39,7 +39,12 @@ def golden_document():
     week = {
         "tokens": 1361, "output": 346, "sessions": 3, "cacheHit": 607 / 1672,
         "breakdown": {"input": 1015, "cacheRead": 607, "cacheWrite": 50, "output": 266, "reasoning": 80},
-        "providers": [{"id": "codex", "tokens": 1050}, {"id": "claude", "tokens": 311}],
+        "providers": [
+            {"id": "codex", "tokens": 1050, "output": 150, "sessions": 1, "cacheHit": 400 / 1300,
+             "breakdown": {"input": 900, "cacheRead": 400, "cacheWrite": 0, "output": 100, "reasoning": 50}},
+            {"id": "claude", "tokens": 311, "output": 196, "sessions": 2, "cacheHit": 207 / 372,
+             "breakdown": {"input": 115, "cacheRead": 207, "cacheWrite": 50, "output": 166, "reasoning": 30}},
+        ],
         "models": [{"name": "gpt-6.1-sol", "provider": "codex", "tokens": 1050},
                    {"name": "claude-opus-5-5", "provider": "claude", "tokens": 300},
                    {"name": "claude-haiku-4-5", "provider": "claude", "tokens": 11}],
@@ -49,8 +54,14 @@ def golden_document():
     month = {
         "tokens": 1372, "output": 350, "sessions": 4, "cacheHit": 616 / 1688,
         "breakdown": {"input": 1022, "cacheRead": 616, "cacheWrite": 50, "output": 269, "reasoning": 81},
-        "providers": [{"id": "codex", "tokens": 1050}, {"id": "claude", "tokens": 311},
-                      {"id": "opencode", "tokens": 11}],
+        "providers": [
+            {"id": "codex", "tokens": 1050, "output": 150, "sessions": 1, "cacheHit": 400 / 1300,
+             "breakdown": {"input": 900, "cacheRead": 400, "cacheWrite": 0, "output": 100, "reasoning": 50}},
+            {"id": "claude", "tokens": 311, "output": 196, "sessions": 2, "cacheHit": 207 / 372,
+             "breakdown": {"input": 115, "cacheRead": 207, "cacheWrite": 50, "output": 166, "reasoning": 30}},
+            {"id": "opencode", "tokens": 11, "output": 4, "sessions": 1, "cacheHit": 9 / 16,
+             "breakdown": {"input": 7, "cacheRead": 9, "cacheWrite": 0, "output": 3, "reasoning": 1}},
+        ],
         "models": [{"name": "gpt-6.1-sol", "provider": "codex", "tokens": 1050},
                    {"name": "claude-opus-5-5", "provider": "claude", "tokens": 300},
                    {"name": "claude-haiku-4-5", "provider": "claude", "tokens": 11},
@@ -113,7 +124,9 @@ class SummaryTests(ReportCase):
         self.assertEqual(today["sessions"], 1)
         self.assertEqual(today["cacheHit"], 30 / 46)
         self.assertEqual(today["breakdown"], {"input": 11, "cacheRead": 30, "cacheWrite": 5, "output": 6, "reasoning": 6})
-        self.assertEqual(today["providers"], [{"id": "claude", "tokens": 23}])
+        self.assertEqual(today["providers"], [{
+            "id": "claude", "tokens": 23, "output": 12, "sessions": 1, "cacheHit": 30 / 46,
+            "breakdown": {"input": 11, "cacheRead": 30, "cacheWrite": 5, "output": 6, "reasoning": 6}}])
         self.assertEqual(today["models"], [{"name": "m1", "provider": "claude", "tokens": 20},
                                            {"name": "m2", "provider": "claude", "tokens": 3}])
         week = self.windows()["7d"]
@@ -164,9 +177,34 @@ class SummaryTests(ReportCase):
         self.add("c", NOW, provider="opencode", input=7)
         today = self.windows(providers=["codex"])["today"]
         self.assertEqual(today["tokens"], 9)
-        self.assertEqual(today["providers"], [{"id": "codex", "tokens": 9}])
+        self.assertEqual(today["providers"], [{
+            "id": "codex", "tokens": 9, "output": 0, "sessions": 1, "cacheHit": 0.0,
+            "breakdown": {"input": 9, "cacheRead": 0, "cacheWrite": 0, "output": 0, "reasoning": 0}}])
         self.assertEqual(today["sessions"], 1)
         self.assertEqual(self.windows(providers=[])["today"]["providers"], [])
+
+    def test_provider_summaries_add_up_to_the_window(self):
+        self.add("a", NOW, provider="claude", session="s1", input=100, cache_read=200, cache_write=50,
+                 output=30, reasoning=10)
+        self.add("b", NOW, provider="claude", session="s2", input=5, output=5)
+        self.add("c", NOW, provider="codex", session="s3", input=300, cache_read=100, output=40, reasoning=20)
+        self.add("d", NOW - 3 * 86400, provider="opencode", session="s4", input=10)
+        self.add("z", NOW, provider="zai", session="s5")
+        week = self.windows()["7d"]
+        summaries = {entry["id"]: entry for entry in week["providers"]}
+        self.assertEqual(summaries["claude"]["cacheHit"], 200 / 355)
+        self.assertEqual(summaries["codex"]["cacheHit"], 100 / 400)
+        self.assertEqual(summaries["opencode"]["cacheHit"], 0.0)
+        self.assertEqual(summaries["zai"]["cacheHit"], 0.0)
+        for field in ("tokens", "output", "sessions"):
+            self.assertEqual(sum(entry[field] for entry in week["providers"]), week[field])
+        for bucket in week["breakdown"]:
+            self.assertEqual(sum(entry["breakdown"][bucket] for entry in week["providers"]),
+                             week["breakdown"][bucket])
+        self.assertEqual(summaries["claude"]["breakdown"],
+                         {"input": 105, "cacheRead": 200, "cacheWrite": 50, "output": 35, "reasoning": 10})
+        self.assertEqual(summaries["codex"]["sessions"], 1)
+        self.assertEqual(summaries["claude"]["sessions"], 2)
 
 
 class WindowTests(ReportCase):

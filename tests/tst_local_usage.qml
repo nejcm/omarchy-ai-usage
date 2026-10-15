@@ -101,6 +101,15 @@ Item {
     return null
   }
 
+  function collect(rootItem, predicate, out) {
+    out = out || []
+    if (!rootItem) return out
+    if (predicate(rootItem)) out.push(rootItem)
+    var data = rootItem.data || []
+    for (var i = 0; i < data.length; i++) collect(data[i], predicate, out)
+    return out
+  }
+
   TestCase {
     name: "LocalUsage"
     when: windowShown
@@ -130,6 +139,13 @@ Item {
       compare(Model.compactNumber(37000000), "37M")
       compare(Model.share(25, 100), "25%")
       compare(Model.share(0, 0), "0%")
+      compare(Model.USAGE_PROVIDERS, ["claude", "codex", "opencode"])
+      compare(Model.localUsageProviders(["codex", "cursor", "claude"]), ["claude", "codex"])
+      compare(Model.localUsageProviders([]), [])
+      compare(Model.localUsageProviders(undefined), [])
+      compare(Model.providerSummary({ providers: [{ id: "codex", tokens: 3 }] }, "codex").tokens, 3)
+      verify(Model.providerSummary({ providers: [] }, "codex") === null)
+      verify(Model.providerSummary(null, "codex") === null)
     }
 
     function init() {
@@ -322,6 +338,88 @@ Item {
       })
     }
 
+    function toolSelector() {
+      return harness.find(panel(), function(item) {
+        return item.options !== undefined && item.options.length > 0 && item.options[0].value === "" && item.options[0].label === "All"
+      })
+    }
+
+    function usageButton(text) {
+      return harness.find(usageTab(), function(item) { return item.text === text })
+    }
+
+    function modelsButton() {
+      return harness.find(usageTab(), function(item) {
+        return typeof item.text === "string" && (item.text.indexOf(" more") >= 0 || item.text === "Show less")
+      })
+    }
+
+    function modelRows() {
+      return harness.collect(usageTab(), function(item) {
+        return item.modelData !== undefined && item.modelData !== null &&
+               typeof item.modelData.name === "string" && typeof item.modelData.provider === "string"
+      })
+    }
+
+    function visibleModelRows() {
+      var rows = modelRows()
+      var out = []
+      for (var i = 0; i < rows.length; i++) if (rows[i].visible) out.push(rows[i])
+      return out
+    }
+
+    function usageFixture() {
+      var models = [
+        { name: "claude-opus-5", provider: "claude", tokens: 100 },
+        { name: "gpt-6.1-sol", provider: "codex", tokens: 80 },
+        { name: "claude-sonnet-4", provider: "claude", tokens: 30 },
+        { name: "gpt-5", provider: "codex", tokens: 10 },
+        { name: "claude-mid", provider: "claude", tokens: 5 },
+        { name: "claude-tiny", provider: "claude", tokens: 2 },
+        { name: "claude-small-1", provider: "claude", tokens: 1 },
+        { name: "claude-small-2", provider: "claude", tokens: 1 },
+        { name: "claude-small-3", provider: "claude", tokens: 1 }
+      ]
+      var days = [
+        { date: "2026-10-06", providers: { claude: 0, codex: 0 } },
+        { date: "2026-10-07", providers: { claude: 0, codex: 0 } },
+        { date: "2026-10-08", providers: { claude: 0, codex: 0 } },
+        { date: "2026-10-09", providers: { claude: 20, codex: 10 } },
+        { date: "2026-10-10", providers: { claude: 0, codex: 0 } },
+        { date: "2026-10-11", providers: { claude: 0, codex: 0 } },
+        { date: "2026-10-12", providers: { claude: 100, codex: 60 } }
+      ]
+      var claude = { id: "claude", tokens: 140, output: 40, sessions: 2, cacheHit: 200 / 300,
+                     breakdown: { input: 100, cacheRead: 200, cacheWrite: 0, output: 30, reasoning: 10 } }
+      var codex = { id: "codex", tokens: 90, output: 30, sessions: 1, cacheHit: 50 / 110,
+                    breakdown: { input: 60, cacheRead: 50, cacheWrite: 0, output: 20, reasoning: 10 } }
+      var week = { tokens: 230, output: 70, sessions: 3, cacheHit: 250 / 410,
+                   breakdown: { input: 160, cacheRead: 250, cacheWrite: 0, output: 50, reasoning: 20 },
+                   providers: [claude, codex], models: models, days: days }
+      return {
+        scanning: false,
+        windows: {
+          today: {
+            tokens: 20, output: 10, sessions: 2, cacheHit: 2 / 13,
+            breakdown: { input: 10, cacheRead: 2, cacheWrite: 1, output: 5, reasoning: 5 },
+            providers: [
+              { id: "claude", tokens: 12, output: 7, sessions: 1, cacheHit: 2 / 8,
+                breakdown: { input: 5, cacheRead: 2, cacheWrite: 1, output: 3, reasoning: 4 } },
+              { id: "codex", tokens: 8, output: 3, sessions: 1, cacheHit: 0.0,
+                breakdown: { input: 5, cacheRead: 0, cacheWrite: 0, output: 2, reasoning: 1 } }
+            ],
+            models: [
+              { name: "claude-opus-5", provider: "claude", tokens: 10 },
+              { name: "codex-6.1-sol", provider: "codex", tokens: 8 },
+              { name: "claude-sonnet-4", provider: "claude", tokens: 2 }
+            ]
+          },
+          "7d": week,
+          "30d": week
+        }
+      }
+    }
+
     function initTestCase() {
       panelHost.settings = {}
       panelHost.localUsage = true
@@ -331,6 +429,7 @@ Item {
       verify(usageTab() !== null)
       verify(windowSelector() !== null)
       verify(tabSelector() !== null)
+      verify(toolSelector() !== null)
     }
 
     function test_defaults_to_limits_and_seven_days() {
@@ -371,18 +470,202 @@ Item {
     }
 
     function test_no_local_usage_message() {
+      panelHost.settings = {}
       panelHost.localUsage = true
       panelHost.enabledProviders = ["claude"]
       panelHost.usage = { scanning: false, windows: { "30d": { providers: [], models: [] } } }
       compare(usageTab().usageFound, false)
-      compare(usageTab().usageMessage, "No local usage found")
-      panelHost.usage = { scanning: false, windows: { "30d": { providers: [{ id: "claude", tokens: 5 }] } } }
+      compare(usageTab().usageOnboarding, true)
+      compare(usageTab().usageMessage, "No local usage in the last 30 days. Claude Code, Codex, and OpenCode write the logs this tab reads.")
+      panelHost.usage = { scanning: false, windows: { "30d": { providers: [{ id: "claude", tokens: 5, breakdown: {} }] } } }
       compare(usageTab().usageFound, true)
+      compare(usageTab().usageOnboarding, false)
       compare(usageTab().usageMessage, "")
       panelHost.usage = { scanning: true, windows: {} }
       compare(usageTab().usageMessage, "Scanning local logs…")
       panelHost.enabledProviders = []
       compare(usageTab().usageMessage, "No providers enabled")
+      panelHost.enabledProviders = ["claude"]
+      panelHost.usage = { scanning: false, windows: {} }
+    }
+
+    function test_models_expand_collapse_and_reset() {
+      panelHost.settings = {}
+      panelHost.localUsage = true
+      panelHost.enabledProviders = ["claude", "codex"]
+      panelHost.usage = usageFixture()
+      tabSelector().changed("usage")
+      panel().showSettings(false)
+      usageTab().usageFilter = ""
+      wait(0)
+      compare(usageTab().modelsExpanded, false)
+      compare(modelRows().length, 9)
+      compare(visibleModelRows().length, 5)
+      compare(modelsButton().text, "4 more")
+
+      modelsButton().clicked()
+      compare(usageTab().modelsExpanded, true)
+      compare(visibleModelRows().length, 9)
+      compare(modelsButton().text, "Show less")
+
+      modelsButton().clicked()
+      compare(usageTab().modelsExpanded, false)
+      compare(visibleModelRows().length, 5)
+
+      modelsButton().forceActiveFocus()
+      keyClick(Qt.Key_Return)
+      compare(usageTab().modelsExpanded, true)
+      compare(visibleModelRows().length, 9)
+
+      windowSelector().changed("today")
+      wait(0)
+      compare(usageTab().modelsExpanded, false)
+      compare(visibleModelRows().length, 3)
+
+      usageTab().modelsExpanded = true
+      toolSelector().changed("claude")
+      compare(usageTab().modelsExpanded, false)
+      compare(visibleModelRows().length, 2)
+      windowSelector().changed("7d")
+      toolSelector().changed("")
+      wait(0)
+    }
+
+    function test_tool_filter_binds_whole_view() {
+      panelHost.settings = {}
+      panelHost.localUsage = true
+      panelHost.enabledProviders = ["claude", "codex"]
+      panelHost.usage = usageFixture()
+      tabSelector().changed("usage")
+      panel().showSettings(false)
+      usageTab().usageFilter = ""
+      wait(0)
+      var usage = usageTab()
+      compare(usage.usageTool, "")
+      compare(usage.usageSummary.tokens, 230)
+      compare(usage.usageSummary.output, 70)
+      compare(usage.usageSummary.sessions, 3)
+      compare(usage.usageSummary.cacheHit, 250 / 410)
+      compare(usage.usageBreakdownTotal, 480)
+      compare(Model.dayMax(usage.usageDays, usage.usageProviderIds), 160)
+      compare(usage.usageVisibleProviders.length, 2)
+      compare(usage.usageVisibleModels.length, 9)
+
+      toolSelector().changed("claude")
+      compare(usage.usageFilter, "claude")
+      compare(usage.usageTool, "claude")
+      compare(usage.usageSummary.tokens, 140)
+      compare(usage.usageSummary.output, 40)
+      compare(usage.usageSummary.sessions, 2)
+      compare(usage.usageSummary.cacheHit, 200 / 300)
+      compare(usage.usageBreakdown.input, 100)
+      compare(usage.usageBreakdownTotal, 340)
+      compare(usage.usageProviderIds.length, 1)
+      compare(usage.usageProviderIds[0], "claude")
+      compare(Model.dayMax(usage.usageDays, usage.usageProviderIds), 100)
+      compare(usage.usageVisibleProviders.length, 1)
+      compare(usage.usageVisibleProviders[0].id, "claude")
+      compare(usage.usageVisibleModels.length, 7)
+
+      windowSelector().changed("today")
+      wait(0)
+      compare(usage.usageWindowName, "today")
+      compare(usage.usageTool, "claude")
+      compare(usage.usageSummary.tokens, 12)
+      compare(usage.usageSummary.output, 7)
+      compare(usage.usageSummary.sessions, 1)
+      compare(usage.usageSummary.cacheHit, 2 / 8)
+      compare(usage.usageBreakdownTotal, 15)
+      compare(usage.usageProviderIds[0], "claude")
+      compare(usage.usageVisibleModels.length, 2)
+
+      toolSelector().changed("")
+      compare(usage.usageSummary.tokens, 20)
+      compare(usage.usageSummary.cacheHit, 2 / 13)
+      compare(usage.usageVisibleModels.length, 3)
+
+      windowSelector().changed("30d")
+      wait(0)
+      compare(usage.usageWindowName, "30d")
+      compare(usage.usageSummary.tokens, 230)
+      compare(usage.usageSummary.cacheHit, 250 / 410)
+    }
+
+    function test_disabled_tool_falls_back_to_all() {
+      panelHost.settings = {}
+      panelHost.localUsage = true
+      panelHost.enabledProviders = ["claude", "codex"]
+      panelHost.usage = usageFixture()
+      tabSelector().changed("usage")
+      panel().showSettings(false)
+      usageTab().usageFilter = ""
+      wait(0)
+      compare(toolSelector().options.length, 3)
+      compare(toolSelector().options[1].label, "Claude Code")
+      compare(toolSelector().options[2].label, "Codex")
+
+      toolSelector().changed("codex")
+      compare(usageTab().usageFilter, "codex")
+      compare(toolSelector().value, "codex")
+      panelHost.enabledProviders = ["claude"]
+      wait(0)
+      compare(usageTab().usageFilter, "")
+      compare(usageTab().usageTool, "")
+      compare(toolSelector().value, "")
+      compare(toolSelector().options.length, 2)
+      compare(usageTab().usageSummary.tokens, 230)
+    }
+
+    function test_tool_without_data_offers_all_and_onboarding_opens_settings() {
+      panelHost.settings = {}
+      panelHost.localUsage = true
+      panelHost.enabledProviders = ["claude", "codex"]
+      panelHost.usage = {
+        scanning: false,
+        windows: {
+          "7d": { tokens: 140, output: 40, sessions: 2, cacheHit: 200 / 300,
+                  breakdown: { input: 100, cacheRead: 200, cacheWrite: 0, output: 30, reasoning: 10 },
+                  providers: [{ id: "claude", tokens: 140, output: 40, sessions: 2, cacheHit: 200 / 300,
+                                breakdown: { input: 100, cacheRead: 200, cacheWrite: 0, output: 30, reasoning: 10 } }],
+                  models: [{ name: "claude-opus-5", provider: "claude", tokens: 140 }],
+                  days: [{ date: "2026-10-12", providers: { claude: 140 } }] },
+          "30d": { tokens: 140, output: 40, sessions: 2, cacheHit: 200 / 300,
+                   breakdown: { input: 100, cacheRead: 200, cacheWrite: 0, output: 30, reasoning: 10 },
+                   providers: [{ id: "claude", tokens: 140, output: 40, sessions: 2, cacheHit: 200 / 300,
+                                 breakdown: { input: 100, cacheRead: 200, cacheWrite: 0, output: 30, reasoning: 10 } }],
+                   models: [], days: [] }
+        }
+      }
+      tabSelector().changed("usage")
+      panel().showSettings(false)
+      usageTab().usageFilter = ""
+      wait(0)
+      toolSelector().changed("codex")
+      compare(usageTab().usageFilter, "codex")
+      compare(usageTab().usageFound, true)
+      compare(usageTab().usageToolFound, false)
+      compare(usageTab().usageToolEmpty, true)
+      compare(usageTab().usageMessage, "Codex has no local usage in the last 30 days")
+      compare(usageButton("Show all").visible, true)
+      compare(usageButton("Open settings").visible, false)
+      compare(usageTab().usageVisibleProviders.length, 0)
+      compare(usageTab().usageVisibleModels.length, 0)
+
+      usageButton("Show all").clicked()
+      compare(usageTab().usageFilter, "")
+      compare(usageTab().usageMessage, "")
+      compare(usageTab().usageVisibleModels.length, 1)
+
+      panelHost.usage = { scanning: false, windows: { "30d": { providers: [], models: [] } } }
+      wait(0)
+      compare(usageTab().usageOnboarding, true)
+      compare(usageButton("Show all").visible, false)
+      compare(usageButton("Open settings").visible, true)
+      panel().showSettings(false)
+      usageButton("Open settings").clicked()
+      compare(panel().settingsOpen, true)
+      panel().showSettings(false)
+      compare(panel().settingsOpen, false)
       panelHost.enabledProviders = ["claude"]
       panelHost.usage = { scanning: false, windows: {} }
     }
