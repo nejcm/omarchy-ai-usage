@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-WINDOWS = (("today", 0), ("7d", 6), ("30d", 29))
+WINDOWS = (("today", 0), ("7d", 6), ("30d", 29), ("6m", 182), ("1y", 364))
 SUMMARY = """
 SELECT provider, sum(input + output + reasoning), sum(output + reasoning),
        sum(input), sum(cache_read), sum(cache_write), sum(output), sum(reasoning)
@@ -31,7 +31,7 @@ GROUP BY 1, 2
 
 
 def windows(connection, now, providers=None) -> dict:
-    """The today, 7d and 30d windows, aggregated from the cache."""
+    """The today, 7d, 30d, 6m and 1y windows, aggregated from the cache."""
     connection.execute("BEGIN")
     try:
         return {name: _window(connection, now, span, providers) for name, span in WINDOWS}
@@ -86,11 +86,26 @@ def _provider_summary(row, sessions):
 
 
 def _days(connection, start, end, span, providers, ids):
+    if span > 31:
+        return _weeks(connection, start, end, providers, ids)
     first = date.fromisoformat(start)
     filled = {(first + timedelta(days=offset)).isoformat(): dict.fromkeys(ids, 0) for offset in range(span + 1)}
     for day, provider, tokens in connection.execute(DAYS, (start, end)):
         if _wanted(provider, providers) and day in filled:
             filled[day][provider] = tokens
+    return [{"date": day, "providers": filled[day]} for day in sorted(filled)]
+
+
+def _weeks(connection, start, end, providers, ids):
+    last = date.fromisoformat(end)
+    count = ((last - date.fromisoformat(start)).days + 1) // 7
+    first = last - timedelta(days=count * 7 - 1)  # whole weeks ending on `end`; the partial leading week is dropped
+    filled = {(first + timedelta(days=offset * 7)).isoformat(): dict.fromkeys(ids, 0) for offset in range(count)}
+    for day, provider, tokens in connection.execute(DAYS, (start, end)):
+        if _wanted(provider, providers):
+            bucket = (first + timedelta(days=((date.fromisoformat(day) - first).days // 7) * 7)).isoformat()
+            if bucket in filled:
+                filled[bucket][provider] += tokens
     return [{"date": day, "providers": filled[day]} for day in sorted(filled)]
 
 

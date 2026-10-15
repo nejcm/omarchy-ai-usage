@@ -275,9 +275,9 @@ class StateTests(ScanCase):
         self.assertEqual(self.files(), {})
         self.assertEqual(self.keys(), ["k1"])
 
-    def test_prunes_events_older_than_31_days(self):
+    def test_prunes_events_older_than_a_year(self):
         now = 1700000000.0
-        self.write("a.jsonl", event("old", ts=now - 40 * 86400) + event("recent", ts=now - 86400))
+        self.write("a.jsonl", event("old", ts=now - 400 * 86400) + event("recent", ts=now - 200 * 86400))
         self.scan(now=now)
         self.assertEqual(self.keys(), ["recent"])
         self.scan(now=now)
@@ -286,7 +286,7 @@ class StateTests(ScanCase):
     def test_discovery_skips_stale_files(self):
         now = 1700000000.0
         path = self.write("a.jsonl", event("k1"))
-        stale = now - 40 * 86400
+        stale = now - 400 * 86400
         os.utime(path, (stale, stale))
         self.scan(now=now)
         self.assertEqual(self.files(), {})

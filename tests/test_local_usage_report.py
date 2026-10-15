@@ -35,6 +35,12 @@ def zero_days(first, count, providers):
             for offset in range(count)]
 
 
+def zero_weeks(first, count, providers):
+    start = date.fromisoformat(first)
+    return [{"date": (start + timedelta(days=7 * offset)).isoformat(), "providers": dict.fromkeys(providers, 0)}
+            for offset in range(count)]
+
+
 def golden_document():
     week = {
         "tokens": 1361, "output": 346, "sessions": 3, "cacheHit": 607 / 1672,
@@ -70,7 +76,14 @@ def golden_document():
     }
     month["days"][-8]["providers"] = {"claude": 0, "codex": 0, "opencode": 11}
     month["days"][-2]["providers"] = {"claude": 311, "codex": 1050, "opencode": 0}
-    return {"usage": {"scanning": False, "windows": {"today": EMPTY, "7d": week, "30d": month}}}
+    half = dict(month, days=zero_weeks("2026-04-04", 26, ["claude", "codex", "opencode"]))
+    half["days"][-2]["providers"] = {"claude": 0, "codex": 0, "opencode": 11}
+    half["days"][-1]["providers"] = {"claude": 311, "codex": 1050, "opencode": 0}
+    year = dict(month, days=zero_weeks("2025-10-04", 52, ["claude", "codex", "opencode"]))
+    year["days"][-2]["providers"] = {"claude": 0, "codex": 0, "opencode": 11}
+    year["days"][-1]["providers"] = {"claude": 311, "codex": 1050, "opencode": 0}
+    return {"usage": {"scanning": False, "windows": {"today": EMPTY, "7d": week, "30d": month,
+                                                    "6m": half, "1y": year}}}
 
 
 class ReportCase(unittest.TestCase):
@@ -235,10 +248,29 @@ class WindowTests(ReportCase):
         self.assertNotIn("days", windows["today"])
         self.assertEqual(len(windows["7d"]["days"]), 7)
         self.assertEqual(len(windows["30d"]["days"]), 30)
+        self.assertEqual(len(windows["6m"]["days"]), 26)
+        self.assertEqual(len(windows["1y"]["days"]), 52)
         self.assertEqual(windows["7d"]["days"][0]["date"], "2026-09-26")
         self.assertEqual(windows["30d"]["days"][0]["date"], "2026-09-03")
+        self.assertEqual(windows["6m"]["days"][0]["date"], "2026-04-04")
+        self.assertEqual(windows["1y"]["days"][0]["date"], "2025-10-04")
+        self.assertEqual(windows["6m"]["days"][-1]["date"], "2026-09-26")
+        self.assertEqual(windows["1y"]["days"][-1]["date"], "2026-09-26")
         self.assertEqual(windows["7d"]["days"][0]["providers"], {})
         self.assertEqual(windows["today"], EMPTY)
+
+    def test_long_windows_bucket_by_week(self):
+        self.add("a", at("2026-09-19T10:00:00Z"), provider="claude", input=4)
+        self.add("b", at("2026-09-25T10:00:00Z"), provider="claude", input=6)
+        self.add("c", at("2026-09-26T10:00:00Z"), provider="codex", input=5)
+        self.add("d", at("2026-10-02T10:00:00Z"), provider="claude", input=7)
+        for name, count in (("6m", 26), ("1y", 52)):
+            days = self.windows()[name]["days"]
+            self.assertEqual(len(days), count)
+            self.assertEqual(days[-2], {"date": "2026-09-19", "providers": {"claude": 10, "codex": 0}})
+            self.assertEqual(days[-1], {"date": "2026-09-26", "providers": {"claude": 7, "codex": 5}})
+            self.assertEqual(sum(day["providers"]["claude"] for day in days), 17)
+        self.assertEqual(len(self.windows()["7d"]["days"]), 7)
 
 
 class GoldenTests(unittest.TestCase):

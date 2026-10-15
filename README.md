@@ -104,19 +104,19 @@ provider throttling.
 
 The panel has two tabs: **Limits** (the default) and **Usage**. The Usage tab
 reads the logs your coding tools already write on this machine and shows token
-totals for Today, 7D (the default), and 30D: a summary row, stacked per-day
-bars, totals by tool and by model, and a token breakdown with each
-bucket's share. Choose **All** or one enabled local source — Claude Code,
-Codex, or OpenCode — to scope every figure to that tool's logs; the
-Today/7D/30D choice stays independent, and disabling the chosen tool returns
-the tab to All. The model list shows the five busiest entries with an **N more**
+totals for Today, 7D (the default), 30D, 6M, and 1Y: a summary row, stacked
+bars (per day for the short windows, per week for 6M and 1Y), totals by tool
+and by model, and a token breakdown with each bucket's share. Choose **All**
+or one enabled local source — Claude Code, Codex, or OpenCode — to scope
+every figure to that tool's logs; the window choice stays independent, and
+disabling the chosen tool returns the tab to All. The model list shows the five busiest entries with an **N more**
 button that reveals the rest and becomes **Show less**. Each reading keeps
 token counts, model IDs, session IDs, and timestamps. The cache also stores
 each log's path — which can include project directory names — and its read
 position so scans resume; prompt content is never stored. Cached reads stay out
 of the headline and appear in the breakdown and the cache-hit share. Until the
 first scan finishes, the tab says "Scanning local logs…". When a finished scan
-finds nothing in the last 30 days, the tab names the supported local sources
+finds nothing in the last year, the tab names the supported local sources
 and offers **Open settings**; if the All view has data but the chosen tool does
 not, it says so and offers **Show all**.
 
@@ -151,7 +151,8 @@ Local usage never contacts anything: it opens the tools' logs read-only and
 aggregates the totals into `$XDG_CACHE_HOME/omarchy-ai-usage/usage.db` (default
 `~/.cache/omarchy-ai-usage/usage.db`). The database is a cache: deleting it
 rescans the surviving logs, so totals for logs a tool has already deleted are
-lost.
+lost. Events older than a year are pruned, and files untouched for a year are
+skipped.
 
 | Provider | Local log read |
 | --- | --- |

@@ -10,7 +10,7 @@ import stat
 import time
 from collections import namedtuple
 
-STATE_DAYS = 31
+STATE_DAYS = 366
 MAX_LINE_BYTES = 16 * 1024 * 1024
 BUDGET_BYTES = 256 * 1024 * 1024
 BUSY_TIMEOUT_MS = 5000

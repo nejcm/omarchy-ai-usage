@@ -125,14 +125,20 @@ Item {
     function initTestCase() {
       compare(Model.SETTING_DEFAULTS.localUsage, true)
       compare(Model.SETTING_DEFAULTS.usageWindow, "7d")
-      compare(Model.USAGE_WINDOWS, ["today", "7d", "30d"])
+      compare(Model.USAGE_WINDOWS, ["today", "7d", "30d", "6m", "1y"])
+      compare(Model.USAGE_WINDOW_DAYS["6m"], 183)
+      compare(Model.USAGE_WINDOW_DAYS["1y"], 365)
       compare(Model.usageWindowName("today"), "today")
       compare(Model.usageWindowName("30d"), "30d")
+      compare(Model.usageWindowName("6m"), "6m")
+      compare(Model.usageWindowName("1y"), "1y")
       compare(Model.usageWindowName("bogus"), "7d")
       compare(Model.usageWindowName(undefined), "7d")
       compare(Model.usageFooter("today"), "Local logs \u00b7 today")
       compare(Model.usageFooter("7d"), "Local logs \u00b7 last 7 days")
       compare(Model.usageFooter("30d"), "Local logs \u00b7 last 30 days")
+      compare(Model.usageFooter("6m"), "Local logs \u00b7 last 6 months")
+      compare(Model.usageFooter("1y"), "Local logs \u00b7 last year")
       compare(Model.compactNumber(0), "0")
       compare(Model.compactNumber(999), "999")
       compare(Model.compactNumber(1200), "1.2K")
@@ -432,7 +438,8 @@ Item {
             ]
           },
           "7d": week,
-          "30d": week
+          "30d": week,
+          "1y": week
         }
       }
     }
@@ -473,6 +480,34 @@ Item {
       compare(panelHost.saved[0][1], "today")
     }
 
+    function test_window_options_include_long_windows() {
+      compare(windowSelector().options.length, 5)
+      compare(windowSelector().options[3].value, "6m")
+      compare(windowSelector().options[3].label, "6M")
+      compare(windowSelector().options[4].value, "1y")
+      compare(windowSelector().options[4].label, "1Y")
+
+      panelHost.settings = {}
+      panelHost.localUsage = true
+      tabSelector().changed("usage")
+      panel().showSettings(false)
+      wait(0)
+      keyCatcher().forceActiveFocus()
+      keyClick(Qt.Key_J)
+      compare(usageTab().cursorStop, 0)
+      compare(windowSelector().cursorIndex, 1)
+      keyClick(Qt.Key_L)
+      keyClick(Qt.Key_L)
+      keyClick(Qt.Key_L)
+      compare(windowSelector().cursorIndex, 4)
+      keyClick(Qt.Key_Return)
+      compare(usageTab().usageWindowName, "1y")
+      compare(windowSelector().value, "1y")
+      compare(panelHost.settings.usageWindow, "1y")
+      usageTab().resetView()
+      panelHost.settings = {}
+    }
+
     function test_toggle_hides_the_usage_tab() {
       panelHost.localUsage = false
       compare(tabSelector().visible, false)
@@ -491,11 +526,11 @@ Item {
       panelHost.settings = {}
       panelHost.localUsage = true
       panelHost.enabledProviders = ["claude"]
-      panelHost.usage = { scanning: false, windows: { "30d": { providers: [], models: [] } } }
+      panelHost.usage = { scanning: false, windows: { "1y": { providers: [], models: [] } } }
       compare(usageTab().usageFound, false)
       compare(usageTab().usageOnboarding, true)
-      compare(usageTab().usageMessage, "No local usage in the last 30 days. Claude Code, Codex, and OpenCode write the logs this tab reads.")
-      panelHost.usage = { scanning: false, windows: { "30d": { providers: [{ id: "claude", tokens: 5, breakdown: {} }] } } }
+      compare(usageTab().usageMessage, "No local usage in the last year. Claude Code, Codex, and OpenCode write the logs this tab reads.")
+      panelHost.usage = { scanning: false, windows: { "1y": { providers: [{ id: "claude", tokens: 5, breakdown: {} }] } } }
       compare(usageTab().usageFound, true)
       compare(usageTab().usageOnboarding, false)
       compare(usageTab().usageMessage, "")
@@ -722,7 +757,8 @@ Item {
                    breakdown: { input: 100, cacheRead: 200, cacheWrite: 0, output: 30, reasoning: 10 },
                    providers: [{ id: "claude", tokens: 140, output: 40, sessions: 2, cacheHit: 200 / 300,
                                  breakdown: { input: 100, cacheRead: 200, cacheWrite: 0, output: 30, reasoning: 10 } }],
-                   models: [], days: [] }
+                   models: [], days: [] },
+          "1y": { providers: [{ id: "claude", tokens: 140 }] }
         }
       }
       tabSelector().changed("usage")
@@ -734,7 +770,7 @@ Item {
       compare(usageTab().usageFound, true)
       compare(usageTab().usageToolFound, false)
       compare(usageTab().usageToolEmpty, true)
-      compare(usageTab().usageMessage, "Codex has no local usage in the last 30 days")
+      compare(usageTab().usageMessage, "Codex has no local usage in the last year")
       compare(usageButton("Show all").visible, true)
       compare(usageButton("Open settings").visible, false)
       compare(usageTab().usageVisibleProviders.length, 0)
@@ -745,7 +781,7 @@ Item {
       compare(usageTab().usageMessage, "")
       compare(usageTab().usageVisibleModels.length, 1)
 
-      panelHost.usage = { scanning: false, windows: { "30d": { providers: [], models: [] } } }
+      panelHost.usage = { scanning: false, windows: { "1y": { providers: [], models: [] } } }
       wait(0)
       compare(usageTab().usageOnboarding, true)
       compare(usageButton("Show all").visible, false)
@@ -879,7 +915,7 @@ Item {
       panelHost.settings = {}
       panelHost.localUsage = true
       panelHost.enabledProviders = ["claude"]
-      panelHost.usage = { scanning: false, windows: { "30d": { providers: [], models: [] } } }
+      panelHost.usage = { scanning: false, windows: { "1y": { providers: [], models: [] } } }
       tabSelector().changed("usage")
       panel().showSettings(false)
       wait(0)

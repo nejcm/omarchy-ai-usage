@@ -81,7 +81,7 @@ class SourceTests(OpenCodeCase):
     def test_assistant_rows_in_window_are_indexed(self):
         self.add(message("msg-1"))
         self.add(message("msg-2", role="user", model=None))
-        self.add(message("msg-3", created=NOW - 40 * 86400))
+        self.add(message("msg-3", created=NOW - 400 * 86400))
         self.scan()
         rows = self.rows()
         self.assertEqual([row[0] for row in rows], ["opencode:msg-1"])

@@ -27,8 +27,8 @@ var SETTING_DEFAULTS = {
   localUsage: true,
   usageWindow: "7d"
 }
-var USAGE_WINDOWS = ["today", "7d", "30d"]
-var USAGE_WINDOW_DAYS = { today: 1, "7d": 7, "30d": 30 }
+var USAGE_WINDOWS = ["today", "7d", "30d", "6m", "1y"]
+var USAGE_WINDOW_DAYS = { today: 1, "7d": 7, "30d": 30, "6m": 183, "1y": 365 }
 var USAGE_PROVIDER_COLORS = { claude: "#d97757", codex: "#10a37f", opencode: "#8b5cf6" }
 var USAGE_PROVIDERS = ["claude", "codex", "opencode"]
 
@@ -462,6 +462,8 @@ function share(value, total) {
 }
 
 function usageFooter(name) {
+  if (name === "6m") return "Local logs \u00b7 last 6 months"
+  if (name === "1y") return "Local logs \u00b7 last year"
   var days = USAGE_WINDOW_DAYS[name] || 7
   return days === 1 ? "Local logs \u00b7 today" : "Local logs \u00b7 last " + days + " days"
 }

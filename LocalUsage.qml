@@ -36,12 +36,12 @@ Column {
   readonly property var usageBreakdown: usageSummary && usageSummary.breakdown ? usageSummary.breakdown : null
   readonly property bool usageScanning: usage !== null && usage.scanning === true
   readonly property bool usageFound: {
-    var month = usage && usage.windows ? usage.windows["30d"] : null
+    var month = usage && usage.windows ? usage.windows["1y"] : null
     return !!month && Array.isArray(month.providers) && month.providers.length > 0
   }
   readonly property bool usageToolFound: {
     if (root.usageTool === "") return root.usageFound
-    return Model.providerSummary(usage && usage.windows ? usage.windows["30d"] : null, root.usageTool) !== null
+    return Model.providerSummary(usage && usage.windows ? usage.windows["1y"] : null, root.usageTool) !== null
   }
   readonly property bool usageNoProviders: !!(hostWidget && hostWidget.enabledProviders && hostWidget.enabledProviders.length === 0)
   readonly property bool usageOnboarding: !root.usageNoProviders && usage !== null && !usageScanning && !usageFound
@@ -49,8 +49,8 @@ Column {
   readonly property string usageMessage: {
     if (root.usageNoProviders) return "No providers enabled"
     if (!usage || usageScanning) return "Scanning local logs…"
-    if (root.usageOnboarding) return "No local usage in the last 30 days. Claude Code, Codex, and OpenCode write the logs this tab reads."
-    if (root.usageToolEmpty) return (Model.PROVIDER_INFO[root.usageTool] ? Model.PROVIDER_INFO[root.usageTool].name : root.usageTool) + " has no local usage in the last 30 days"
+    if (root.usageOnboarding) return "No local usage in the last year. Claude Code, Codex, and OpenCode write the logs this tab reads."
+    if (root.usageToolEmpty) return (Model.PROVIDER_INFO[root.usageTool] ? Model.PROVIDER_INFO[root.usageTool].name : root.usageTool) + " has no local usage in the last year"
     return ""
   }
   readonly property real usageBreakdownTotal: {
@@ -191,7 +191,9 @@ Column {
       options: [
         { value: "today", label: "Today" },
         { value: "7d", label: "7D" },
-        { value: "30d", label: "30D" }
+        { value: "30d", label: "30D" },
+        { value: "6m", label: "6M" },
+        { value: "1y", label: "1Y" }
       ]
       value: root.usageWindowName
       cursorIndex: root.cursorChipIndex(windowSelector)
