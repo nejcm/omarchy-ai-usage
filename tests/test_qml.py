@@ -149,7 +149,7 @@ const selectorMarker = usageQml.indexOf('{ value: "today"');
 assert(selectorMarker >= 0);
 const marker = usageQml.indexOf("onChanged: function (value) {", selectorMarker);
 assert(marker >= 0);
-const endMarker = "\\n    }";
+const endMarker = "\\n      }";
 const end = usageQml.indexOf(endMarker, marker) + endMarker.length;
 assert(end > marker);
 new Function("root", "with (root) { return (" + usageQml.slice(marker + "onChanged: ".length, end) + ") }")(usageRoot)("30d");

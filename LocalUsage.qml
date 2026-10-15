@@ -181,34 +181,39 @@ Column {
     }
   }
 
-  ButtonGroup {
-    id: windowSelector
+  Column {
     width: parent.width
-    options: [
-      { value: "today", label: "Today" },
-      { value: "7d", label: "7D" },
-      { value: "30d", label: "30D" }
-    ]
-    value: root.usageWindowName
-    cursorIndex: root.cursorChipIndex(windowSelector)
-    foreground: root.foreground
-    fontFamily: root.fontFamily
-    onChanged: function (value) {
-      if (root.hostWidget) root.hostWidget.saveSetting("usageWindow", value)
-    }
-  }
+    spacing: Style.space(8)
 
-  ButtonGroup {
-    id: toolSelector
-    visible: root.usageFilterOptions.length > 1
-    width: parent.width
-    options: root.usageFilterOptions
-    value: root.usageTool
-    cursorIndex: root.cursorChipIndex(toolSelector)
-    foreground: root.foreground
-    fontFamily: root.fontFamily
-    onChanged: function (value) {
-      root.usageFilter = value
+    ButtonGroup {
+      id: windowSelector
+      width: parent.width
+      options: [
+        { value: "today", label: "Today" },
+        { value: "7d", label: "7D" },
+        { value: "30d", label: "30D" }
+      ]
+      value: root.usageWindowName
+      cursorIndex: root.cursorChipIndex(windowSelector)
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+      onChanged: function (value) {
+        if (root.hostWidget) root.hostWidget.saveSetting("usageWindow", value)
+      }
+    }
+
+    ButtonGroup {
+      id: toolSelector
+      visible: root.usageFilterOptions.length > 1
+      width: parent.width
+      options: root.usageFilterOptions
+      value: root.usageTool
+      cursorIndex: root.cursorChipIndex(toolSelector)
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+      onChanged: function (value) {
+        root.usageFilter = value
+      }
     }
   }
 
