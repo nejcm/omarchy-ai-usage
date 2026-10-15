@@ -90,6 +90,8 @@ Panel {
       }
       onMoveRequested: function (dx, dy) {
         if (!usageView.visible) return
+        // A focused child consumes Return/Space before the catcher sees them.
+        keyCatcher.forceActiveFocus()
         usageView.moveCursor(dx, dy)
         root.revealItem(usageView.cursorItem)
       }

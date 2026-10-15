@@ -507,6 +507,82 @@ Item {
       panelHost.usage = { scanning: false, windows: {} }
     }
 
+    function test_mixed_mouse_and_keyboard_cursor_ownership() {
+      panelHost.settings = {}
+      panelHost.localUsage = true
+      panelHost.enabledProviders = ["claude", "codex"]
+      panelHost.usage = usageFixture()
+      tabSelector().changed("usage")
+      panel().showSettings(false)
+      usageTab().resetView()
+      wait(50)
+      var usage = usageTab()
+
+      keyCatcher().forceActiveFocus()
+      keyClick(Qt.Key_J)
+      keyClick(Qt.Key_J)
+      keyClick(Qt.Key_J)
+      compare(usage.cursorStop, 2)
+      mouseClick(modelsButton(), modelsButton().width / 2, modelsButton().height / 2)
+      wait(50)
+      verify(modelsButton().activeFocus)
+      compare(usage.modelsExpanded, true)
+
+      keyClick(Qt.Key_K)
+      keyClick(Qt.Key_K)
+      compare(usage.cursorStop, 0)
+      compare(keyCatcher().activeFocus, true)
+      compare(modelsButton().activeFocus, false)
+      keyClick(Qt.Key_L)
+      compare(windowSelector().cursorIndex, 2)
+      keyClick(Qt.Key_Return)
+      compare(usage.usageWindowName, "30d")
+      compare(windowSelector().value, "30d")
+      compare(panelHost.settings.usageWindow, "30d")
+      compare(usage.modelsExpanded, false)
+
+      usage.resetView()
+      windowSelector().changed("7d")
+      keyCatcher().forceActiveFocus()
+      wait(50)
+      keyClick(Qt.Key_J)
+      compare(windowSelector().cursorIndex, 1)
+      mouseClick(modelsButton(), modelsButton().width / 2, modelsButton().height / 2)
+      wait(50)
+      verify(modelsButton().activeFocus)
+      compare(usage.modelsExpanded, true)
+      keyClick(Qt.Key_L)
+      compare(windowSelector().cursorIndex, 2)
+      keyClick(Qt.Key_Space)
+      compare(usage.usageWindowName, "30d")
+      compare(usage.modelsExpanded, false)
+
+      usage.resetView()
+      windowSelector().changed("7d")
+      keyCatcher().forceActiveFocus()
+      wait(50)
+      keyClick(Qt.Key_Return)
+      compare(panel().settingsOpen, true)
+      panel().showSettings(false)
+      compare(keyCatcher().activeFocus, false)
+      keyClick(Qt.Key_J)
+      compare(keyCatcher().activeFocus, true)
+      compare(windowSelector().cursorIndex, 1)
+      keyClick(Qt.Key_Return)
+      compare(panel().settingsOpen, false)
+      compare(usage.usageWindowName, "7d")
+      keyClick(Qt.Key_L)
+      compare(windowSelector().cursorIndex, 2)
+      keyClick(Qt.Key_Space)
+      compare(usage.usageWindowName, "30d")
+
+      usage.resetView()
+      panelHost.settings = {}
+      panelHost.enabledProviders = ["claude"]
+      panel().tab = "limits"
+      wait(50)
+    }
+
     function test_models_expand_collapse_and_reset() {
       panelHost.settings = {}
       panelHost.localUsage = true
