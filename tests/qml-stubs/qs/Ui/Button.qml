@@ -10,6 +10,7 @@ Item {
   property string tooltipText: ""
   property bool selected: false
   property bool bordered: false
+  property bool hasCursor: false
   property bool focusable: false
   property bool leftAlign: false
   property color foreground: Color.foreground

@@ -11,6 +11,9 @@ Item {
   property real contentHeight: 0
   property real screenH: 1000
 
+  width: contentWidth
+  height: contentHeight
+
   function fittedContentWidth(preferred) {
     return preferred
   }

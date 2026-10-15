@@ -32,6 +32,7 @@ Panel {
     root.settingsOpen = false
     root.tab = "limits"
     root.nowMs = Date.now()
+    usageView.resetView()
     if (hostWidget && hostWidget.refreshIfStale)
       hostWidget.refreshIfStale()
     root.controller.show()
@@ -50,6 +51,14 @@ Panel {
     if (root.bar && typeof root.bar.switchPanelFrom === "function")
       return root.bar.switchPanelFrom(root.barIdentity, direction)
     return false
+  }
+
+  function revealItem(item) {
+    if (!item || !item.visible) return
+    var position = item.mapToItem(content, 0, 0).y
+    if (position < scroll.contentY) scroll.contentY = position
+    else if (position + item.height > scroll.contentY + scroll.height)
+      scroll.contentY = Math.min(Math.max(0, scroll.contentHeight - scroll.height), position + item.height - scroll.height)
   }
 
   // Keeps the reset countdowns live; Date.now() alone gives no binding dependency.
@@ -79,7 +88,17 @@ Panel {
       onTabRequested: function (direction) {
         root.switchPanel(direction)
       }
-      onActivateRequested: root.showSettings(true)
+      onMoveRequested: function (dx, dy) {
+        if (!usageView.visible) return
+        // A focused child consumes Return/Space before the catcher sees them.
+        keyCatcher.forceActiveFocus()
+        usageView.moveCursor(dx, dy)
+        root.revealItem(usageView.cursorItem)
+      }
+      onActivateRequested: {
+        if (usageView.visible && usageView.cursorActive && usageView.activateCursor()) return
+        root.showSettings(true)
+      }
 
       Column {
         anchors.fill: parent
@@ -457,11 +476,13 @@ Panel {
             }
 
             LocalUsage {
+              id: usageView
               width: parent.width
               visible: root.localUsage && root.tab === "usage"
               hostWidget: root.hostWidget
               foreground: root.contentForeground
               fontFamily: root.contentFontFamily
+              onOpenSettingsRequested: root.showSettings(true)
             }
           }
         }
@@ -480,11 +501,13 @@ Panel {
         ancestor = ancestor.parent
       if (!ancestor)
         return
-      var position = item.mapToItem(settingsContent, 0, 0).y
-      if (position < scroll.contentY)
-        scroll.contentY = position
-      else if (position + item.height > scroll.contentY + scroll.height)
-        scroll.contentY = Math.min(Math.max(0, scroll.contentHeight - scroll.height), position + item.height - scroll.height)
+      root.revealItem(item)
     }
+  }
+
+  Connections {
+    target: usageView.cursorItem
+    function onYChanged() { root.revealItem(usageView.cursorItem) }
+    function onHeightChanged() { root.revealItem(usageView.cursorItem) }
   }
 }

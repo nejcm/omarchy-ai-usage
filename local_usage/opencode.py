@@ -15,25 +15,30 @@ ID = "opencode"
 MAX_INT = 2 ** 63 - 1
 SELECT = """
 SELECT id, session_id, time_created,
-       json_extract(valid, '$.modelID'),
+       coalesce(json_extract(valid, '$.model.id'), json_extract(valid, '$.modelID')),
        json_extract(valid, '$.tokens.input'),
        json_extract(valid, '$.tokens.output'),
        json_extract(valid, '$.tokens.reasoning'),
        json_extract(valid, '$.tokens.cache.read'),
        json_extract(valid, '$.tokens.cache.write')
-FROM (SELECT id, session_id, time_created, CASE WHEN json_valid(data) THEN data END AS valid
-      FROM message WHERE time_created >= ?)
-WHERE json_extract(valid, '$.role') = 'assistant'
+FROM ({sources})
+WHERE (current_schema OR json_extract(valid, '$.role') = 'assistant')
   AND json_type(valid, '$.tokens.input') IN ('integer', 'real')
   AND json_type(valid, '$.tokens.output') IN ('integer', 'real')
   AND json_type(valid, '$.tokens.reasoning') IN ('integer', 'real')
   AND json_type(valid, '$.tokens.cache.read') IN ('integer', 'real')
   AND json_type(valid, '$.tokens.cache.write') IN ('integer', 'real')
 """
+LEGACY_SOURCE = """SELECT id, session_id, time_created,
+       CASE WHEN json_valid(data) THEN data END AS valid, 0 AS current_schema
+       FROM message WHERE time_created >= ?"""
+CURRENT_SOURCE = """SELECT id, session_id, time_created,
+       CASE WHEN json_valid(data) THEN data END AS valid, 1 AS current_schema
+       FROM session_message WHERE type = 'assistant' AND time_created >= ?"""
 
 
 def query(home: str, env: dict) -> local_usage.scan.Query:
-    """The message-table source; a missing database yields no events."""
+    """The OpenCode database source; a missing database yields no events."""
     return local_usage.scan.Query(ID, lambda cutoff: _events(database_path(home, env), cutoff))
 
 
@@ -47,7 +52,12 @@ def _events(path, cutoff):
     try:
         uri = pathlib.Path(os.path.abspath(path)).as_uri() + "?mode=ro"
         with contextlib.closing(sqlite3.connect(uri, uri=True)) as connection:
-            records = connection.execute(SELECT, (int(cutoff * 1000),)).fetchall()
+            records = []
+            for source in (LEGACY_SOURCE, CURRENT_SOURCE):
+                try:
+                    records.extend(connection.execute(SELECT.format(sources=source), (int(cutoff * 1000),)).fetchall())
+                except sqlite3.Error:
+                    continue
     except sqlite3.Error:
         return []
     events = []

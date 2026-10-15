@@ -30,6 +30,7 @@ var SETTING_DEFAULTS = {
 var USAGE_WINDOWS = ["today", "7d", "30d"]
 var USAGE_WINDOW_DAYS = { today: 1, "7d": 7, "30d": 30 }
 var USAGE_PROVIDER_COLORS = { claude: "#d97757", codex: "#10a37f", opencode: "#8b5cf6" }
+var USAGE_PROVIDERS = ["claude", "codex", "opencode"]
 
 function providerList(value) {
   return value && typeof value === "object" && typeof value.length === "number" ? Array.prototype.slice.call(value) : []
@@ -412,6 +413,23 @@ function providerIds(window) {
     if (list[i] && typeof list[i].id === "string") out.push(list[i].id)
   }
   return out
+}
+
+function localUsageProviders(enabled) {
+  var list = providerList(enabled)
+  var out = []
+  for (var i = 0; i < USAGE_PROVIDERS.length; i++) {
+    if (list.indexOf(USAGE_PROVIDERS[i]) >= 0) out.push(USAGE_PROVIDERS[i])
+  }
+  return out
+}
+
+function providerSummary(window, id) {
+  var list = window && window.providers ? window.providers : []
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && list[i].id === id) return list[i]
+  }
+  return null
 }
 
 function dayMax(days, ids) {

@@ -51,21 +51,38 @@ def _window(connection, now, span, providers):
         "reasoning": sum(row[7] for row in stats),
     }
     denominator = breakdown["input"] + breakdown["cacheRead"] + breakdown["cacheWrite"]
+    sessions = {}
+    for provider, _session in connection.execute(SESSIONS, (start, end)):
+        if _wanted(provider, providers):
+            sessions[provider] = sessions.get(provider, 0) + 1
     models = [{"name": row[1], "provider": row[0], "tokens": row[2]}
               for row in connection.execute(MODELS, (start, end)) if _wanted(row[0], providers)]
     window = {
         "tokens": sum(row[1] for row in stats),
         "output": sum(row[2] for row in stats),
-        "sessions": sum(1 for row in connection.execute(SESSIONS, (start, end)) if _wanted(row[0], providers)),
+        "sessions": sum(sessions.values()),
         "cacheHit": breakdown["cacheRead"] / denominator if denominator else 0.0,
         "breakdown": breakdown,
-        "providers": sorted(({"id": row[0], "tokens": row[1]} for row in stats),
+        "providers": sorted((_provider_summary(row, sessions) for row in stats),
                             key=lambda entry: (-entry["tokens"], entry["id"])),
         "models": sorted(models, key=lambda entry: (-entry["tokens"], entry["provider"], entry["name"])),
     }
     if span:
         window["days"] = _days(connection, start, end, span, providers, sorted(row[0] for row in stats))
     return window
+
+
+def _provider_summary(row, sessions):
+    buckets = {"input": row[3], "cacheRead": row[4], "cacheWrite": row[5], "output": row[6], "reasoning": row[7]}
+    denominator = buckets["input"] + buckets["cacheRead"] + buckets["cacheWrite"]
+    return {
+        "id": row[0],
+        "tokens": row[1],
+        "output": row[2],
+        "sessions": sessions.get(row[0], 0),
+        "cacheHit": buckets["cacheRead"] / denominator if denominator else 0.0,
+        "breakdown": buckets,
+    }
 
 
 def _days(connection, start, end, span, providers, ids):
