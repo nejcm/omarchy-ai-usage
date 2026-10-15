@@ -236,17 +236,13 @@ class RefreshLockTests(ProviderCase):
 
     def test_heartbeat_thread_runs(self):
         lock = claude._RefreshLock(self.lock_path())
-        original = claude.LOCK_UPDATE_SECONDS
-        claude.LOCK_UPDATE_SECONDS = 0.05
-        try:
+        with mock.patch.object(claude, "LOCK_UPDATE_SECONDS", 0.05):
             self.assertTrue(lock.acquire())
             lock._start_heartbeat()
             time.sleep(0.25)
             self.assertFalse(lock.lost)
             self.assertTrue(lock.still_owned())
             lock.release()
-        finally:
-            claude.LOCK_UPDATE_SECONDS = original
 
     def test_lost_ownership_skips_rmdir(self):
         lock = claude._RefreshLock(self.lock_path())
@@ -462,12 +458,8 @@ class ClaudeLockFlowTests(ProviderCase):
                 return common.Response(200, {"access_token": "new-token", "expires_in": 3600})
             return common.Response(200, load("claude_usage.json"))
 
-        original = claude.TOKEN_DEADLINE_SECONDS
-        claude.TOKEN_DEADLINE_SECONDS = 0.1
-        try:
+        with mock.patch.object(claude, "TOKEN_DEADLINE_SECONDS", 0.1):
             row = claude.collect(request, self.home, {})
-        finally:
-            claude.TOKEN_DEADLINE_SECONDS = original
         self.assertEqual(row["status"], common.ERROR)
         self.assertEqual(row["error"], "refresh-timeout")
         self.assertEqual(json.loads(path.read_text())["claudeAiOauth"]["accessToken"], "old-token")

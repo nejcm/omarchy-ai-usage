@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import unittest
-from datetime import datetime, timedelta, timezone
+from unittest import mock
+from datetime import datetime, timezone
 from pathlib import Path
 
 from support import FakeRequest, ProviderCase, load, write
 from providers import common, opencode
+
+NOW = 1790000000
 
 
 class OpenCodeTests(ProviderCase):
@@ -37,15 +40,25 @@ class OpenCodeTests(ProviderCase):
         self.assertEqual(opencode.parse({"usage": "bad"}), [])
         self.assertEqual(opencode.parse({"usage": {"rolling": "bad"}}), [])
 
+    def at(self, offset):
+        return datetime.fromtimestamp(NOW + offset, timezone.utc).isoformat().replace("+00:00", "Z")
+
     def test_idle_rolling_placeholder_suppressed(self):
-        soon = (datetime.now(timezone.utc) + timedelta(seconds=opencode.SESSION_SECONDS)).isoformat().replace("+00:00", "Z")
-        genuine = (datetime.now(timezone.utc) + timedelta(seconds=10800)).isoformat().replace("+00:00", "Z")
-        payload = {"usage": {"rolling": {"percent": 0, "resetsAt": soon},
+        genuine = self.at(10800)
+        payload = {"usage": {"rolling": {"percent": 0, "resetsAt": self.at(opencode.SESSION_SECONDS)},
                              "weekly": {"percent": 7, "resetsAt": genuine}}}
-        metrics = opencode.parse(payload)
+        with mock.patch("providers.opencode.time.time", return_value=NOW):
+            metrics = opencode.parse(payload)
         self.assertEqual(metrics[0]["label"], "Session")
         self.assertEqual(metrics[0]["resetsAt"], "")
         self.assertEqual(metrics[1]["resetsAt"], common.reset_iso(genuine))
+
+    def test_placeholder_tolerance_boundary(self):
+        tolerance = opencode.PLACEHOLDER_TOLERANCE
+        for offset, suppressed in ((tolerance, True), (-tolerance, True), (tolerance + 1, False), (-tolerance - 1, False)):
+            payload = {"usage": {"rolling": {"percent": 0, "resetsAt": self.at(opencode.SESSION_SECONDS + offset)}}}
+            with self.subTest(offset=offset), mock.patch("providers.opencode.time.time", return_value=NOW):
+                self.assertEqual(opencode.parse(payload)[0]["resetsAt"] == "", suppressed)
 
     def test_expired_auth(self):
         write(self.home, self.AUTH, {"opencode-go": {"key": "SECRET-KEY"}})

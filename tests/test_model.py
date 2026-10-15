@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 import json
-import shutil
-import subprocess
 import unittest
 
-from support import ROOT
+from support import model_source, requires_node, run_node
 import providers as providers_pkg
 
 
 class ModelTests(unittest.TestCase):
-    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    @requires_node
     def test_model_reset_and_reorder(self):
-        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        source = model_source()
         script = source + """
 const assert = require("node:assert/strict");
 const saved = {enabledProviders: ["claude", "codex"], providerOrder: ["cursor", "codex", "claude"],
@@ -47,11 +45,11 @@ const seqOrder = {0: "cursor", 1: "codex", 2: "claude", length: 3};
 assert.deepEqual(moveItem(seqOrder, "claude", 0), ["claude", "cursor", "codex"]);
 console.log("OK");
 """
-        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+        run_node(self, script)
 
-    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    @requires_node
     def test_model_restore_cache(self):
-        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        source = model_source()
         script = source + """
 const assert = require("node:assert/strict");
 const rows = [{provider:"claude", status:"ok", metrics:[{percent:42}]},
@@ -75,11 +73,11 @@ assert.equal(restoreCache(JSON.stringify({refreshedAt:123, rows})), null);
 assert.equal(restoreCache(JSON.stringify({refreshedAt:"2026-10-12T10:00:00Z", rows:"bad"})), null);
 assert.equal(restoreCache(JSON.stringify({refreshedAt:"2026-10-12T10:00:00Z", rows:{}})), null);
 """
-        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+        run_node(self, script)
 
-    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    @requires_node
     def test_settings_and_warning_periods(self):
-        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        source = model_source()
         script = source + """
 const assert = require("node:assert/strict");
 assert.deepEqual(providerOrder(["cursor", "bad", "cursor"]), ["cursor", "claude", "codex", "opencode", "grok", "antigravity", "zai"]);
@@ -138,11 +136,11 @@ assert.equal(warningEvents([row], state, 80, true).events.length, 1);
 row.metrics[0].percent = null;
 assert.equal(warningEvents([row], {}, 80, true).events.length, 0);
 assert.deepEqual(PROVIDERS, """ + json.dumps([module.ID for module in providers_pkg.REGISTRY]) + ");"
-        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+        run_node(self, script)
 
-    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    @requires_node
     def test_model_usage_formatting_and_colors(self):
-        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        source = model_source()
         script = source + """
 const assert = require("node:assert/strict");
 const row = {status:"ok", metrics:[{percent:18}, {percent:42}]};
@@ -171,12 +169,17 @@ for (const [value, color] of [[0,"#4ade80"], [75,"#4ade80"],
   [75.1,"#fb923c"], [90,"#fb923c"], [90.1,"#f87171"], [100,"#f87171"]]) {
   assert.equal(usageColor(value), color);
 }
+assert.equal(percentText(42.4), "42%");
+assert.equal(percentText(42.5), "43%");
+assert.equal(percentText(0), "0%");
+assert.equal(percentText(null), "\u2013");
+assert.equal(percentText(NaN), "\u2013");
 """
-        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+        run_node(self, script)
 
-    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    @requires_node
     def test_model_status_hints_and_relative_time(self):
-        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        source = model_source()
         script = source + """
 const assert = require("node:assert/strict");
 const now = Date.parse("2026-10-12T14:32:00Z");
@@ -236,11 +239,11 @@ assert.equal(barTooltip("remaining"), "AI usage \\u2014 percent remaining of eac
 assert.equal(barTooltip("both"), "AI usage \\u2014 percent used and remaining of each provider's shortest limit window");
 assert.equal(TROUBLESHOOTING_URL, "https://github.com/nejcm/omarchy-ai-usage#troubleshooting");
 """
-        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+        run_node(self, script)
 
-    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    @requires_node
     def test_provider_names_and_logos(self):
-        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        source = model_source()
         script = source + """
 const assert = require("node:assert/strict");
 assert.deepEqual(PROVIDERS, ["claude", "codex", "opencode", "cursor", "grok", "antigravity", "zai"]);
@@ -255,11 +258,11 @@ assert.deepEqual(PROVIDERS.map(panelLogo),
 assert.equal(logo("unknown", true), "");
 assert.equal(panelLogo("unknown"), "");
 """
-        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+        run_node(self, script)
 
-    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    @requires_node
     def test_model_merge_keeps_cache_across_failures(self):
-        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        source = model_source()
         script = source + """
 var rows = [];
 rows = mergeRows(rows, [{provider:"x",name:"X",abbrev:"X",status:"ok",plan:"P",
@@ -270,8 +273,7 @@ rows = mergeRows(rows, [{provider:"x",name:"X",abbrev:"X",status:"rate-limited",
   metrics:[],resetAt:"",refreshedAt:"t3"}]);
 console.log(JSON.stringify({rows:rows, marked:markStale(rows)}));
 """
-        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
-        payload = json.loads(result.stdout)
+        payload = json.loads(run_node(self, script))
         for rows in (payload["rows"], payload["marked"]):
             self.assertEqual(rows[0]["status"], "stale")
             self.assertEqual(rows[0]["metrics"][0]["percent"], 42)

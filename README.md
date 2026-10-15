@@ -287,6 +287,8 @@ Tests use temporary credential files, redacted fixtures, and fake transports;
 they do not contact providers or touch real credentials. Node.js runs the
 JavaScript helper and extracted QML function tests when installed; those cases
 are skipped if Node.js is unavailable. No npm dependencies are required.
+The QML suites need the Qt 6 `qmltestrunner`; set `QMLTESTRUNNER` if it is
+not under a standard `qt6/bin` directory, otherwise those cases are skipped.
 
 For UI changes, also check the panel at smaller screen sizes, keyboard
 navigation, all-disabled and all-hidden states, and changes during a refresh.

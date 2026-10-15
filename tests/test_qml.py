@@ -1,51 +1,27 @@
 from __future__ import annotations
 
 import json
-import os
-import shutil
-import subprocess
 import unittest
-from pathlib import Path
 
-from support import ROOT
+from support import ROOT, model_source, requires_node, requires_qml, run_node, run_qml
 
 
 class QmlTests(unittest.TestCase):
-    @unittest.skipUnless(Path("/usr/lib/qt6/bin/qmltestrunner").exists(), "Qt 6 QML test runner not installed")
+    @requires_qml
     def test_qml_provider_settings_after_restart(self):
-        result = subprocess.run(
-            ["/usr/lib/qt6/bin/qmltestrunner", "-input", str(ROOT / "tests/tst_provider_settings.qml"), "-o", "-,txt"],
-            env={**os.environ, "QT_QPA_PLATFORM": "offscreen", "QT_QPA_PLATFORMTHEME": "",
-                 "QT_QUICK_BACKEND": "software", "QT_LOGGING_TO_CONSOLE": "1"},
-            capture_output=True, text=True, timeout=30,
-        )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        run_qml(self, "tst_provider_settings.qml", stubs=False)
 
-    @unittest.skipUnless(Path("/usr/lib/qt6/bin/qmltestrunner").exists(), "Qt 6 QML test runner not installed")
+    @requires_qml
     def test_qml_settings_reset_flow(self):
-        result = subprocess.run(
-            ["/usr/lib/qt6/bin/qmltestrunner", "-import", str(ROOT / "tests/qml-stubs"),
-             "-input", str(ROOT / "tests/tst_settings_reset.qml"), "-o", "-,txt"],
-            env={**os.environ, "QT_QPA_PLATFORM": "offscreen", "QT_QPA_PLATFORMTHEME": "",
-                 "QT_QUICK_BACKEND": "software", "QT_LOGGING_TO_CONSOLE": "1"},
-            capture_output=True, text=True, timeout=60,
-        )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        run_qml(self, "tst_settings_reset.qml")
 
-    @unittest.skipUnless(Path("/usr/lib/qt6/bin/qmltestrunner").exists(), "Qt 6 QML test runner not installed")
+    @requires_qml
     def test_qml_local_usage_toggle(self):
-        result = subprocess.run(
-            ["/usr/lib/qt6/bin/qmltestrunner", "-import", str(ROOT / "tests/qml-stubs"),
-             "-input", str(ROOT / "tests/tst_local_usage.qml"), "-o", "-,txt"],
-            env={**os.environ, "QT_QPA_PLATFORM": "offscreen", "QT_QPA_PLATFORMTHEME": "",
-                 "QT_QUICK_BACKEND": "software", "QT_LOGGING_TO_CONSOLE": "1"},
-            capture_output=True, text=True, timeout=60,
-        )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        run_qml(self, "tst_local_usage.qml")
 
-    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    @requires_node
     def test_widget_local_usage_process(self):
-        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        source = model_source()
         script = source + "\nconst qml = " + json.dumps((ROOT / "BarWidget.qml").read_text()) + \
             ";\nconst usageQml = " + json.dumps((ROOT / "LocalUsage.qml").read_text()) + ";" + """
 const assert = require("node:assert/strict");
@@ -155,12 +131,11 @@ assert(end > marker);
 new Function("root", "with (root) { return (" + usageQml.slice(marker + "onChanged: ".length, end) + ") }")(usageRoot)("30d");
 assert.deepEqual(saved, [["usageWindow", "30d"]]);
 """
-        result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        run_node(self, script)
 
-    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    @requires_node
     def test_widget_collection_selection_and_late_output(self):
-        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        source = model_source()
         script = source + "\nconst qml = " + json.dumps((ROOT / "BarWidget.qml").read_text()) + ";" + """
 const assert = require("node:assert/strict");
 const root = {enabledProviders:[], loadedOnce:false, refreshPending:false,
@@ -290,11 +265,11 @@ root.enabledProviders = ["codex", "cursor"];
 handler("onSelectionKeyChanged")();
 assert.equal(root.refreshCalls, 1);
 """
-        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+        run_node(self, script)
 
-    @unittest.skipUnless(shutil.which("node"), "node not installed")
+    @requires_node
     def test_defaults_and_settings_persistence(self):
-        source = (ROOT / "Model.js").read_text().replace(".pragma library", "")
+        source = model_source()
         qml = (ROOT / "BarWidget.qml").read_text()
         extracted = {}
         for name in ("writeSettings", "saveSetting", "resetSettings", "toggleProviderList"):
@@ -419,7 +394,7 @@ assert.equal(resetWidget.setting("colorWarnings", SETTING_DEFAULTS.colorWarnings
 assert.equal(resetWidget.setting("desktopNotifications", SETTING_DEFAULTS.desktopNotifications), false);
 console.log("OK");
 """
-        subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+        run_node(self, script)
 
 
 if __name__ == "__main__":

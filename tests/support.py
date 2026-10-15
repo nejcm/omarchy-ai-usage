@@ -1,5 +1,8 @@
 import base64
 import json
+import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -13,6 +16,35 @@ from providers import common  # noqa: E402
 FIXTURES = Path(__file__).parent / "fixtures"
 FUTURE_EXP = 4102444800
 PAST_EXP = 1000000000
+
+NODE = shutil.which("node")
+# /usr/bin/qmltestrunner is Qt 5 on some distros, so only Qt 6 locations are probed.
+QMLTESTRUNNER = os.environ.get("QMLTESTRUNNER") or next(
+    (path for path in ("/usr/lib/qt6/bin/qmltestrunner", "/usr/lib64/qt6/bin/qmltestrunner",
+                       "/usr/lib/x86_64-linux-gnu/qt6/bin/qmltestrunner") if Path(path).exists()), None)
+requires_node = unittest.skipUnless(NODE, "node not installed")
+requires_qml = unittest.skipUnless(QMLTESTRUNNER, "Qt 6 qmltestrunner not found; set QMLTESTRUNNER")
+
+
+def model_source():
+    return (ROOT / "Model.js").read_text().replace(".pragma library", "")
+
+
+def run_node(case, script):
+    result = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=30)
+    case.assertEqual(result.returncode, 0, result.stderr)
+    return result.stdout
+
+
+def run_qml(case, test_file, stubs=True):
+    imports = ["-import", str(ROOT / "tests/qml-stubs")] if stubs else []
+    result = subprocess.run(
+        [QMLTESTRUNNER, *imports, "-input", str(ROOT / "tests" / test_file), "-o", "-,txt"],
+        env={**os.environ, "QT_QPA_PLATFORM": "offscreen", "QT_QPA_PLATFORMTHEME": "",
+             "QT_QUICK_BACKEND": "software", "QT_LOGGING_TO_CONSOLE": "1"},
+        capture_output=True, text=True, timeout=60,
+    )
+    case.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 def load(name):
