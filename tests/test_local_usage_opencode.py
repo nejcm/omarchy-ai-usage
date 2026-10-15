@@ -1,4 +1,4 @@
-"""OpenCode message-table source tests; a temp db stands in for opencode.db."""
+"""OpenCode SQLite source tests; a temp db stands in for opencode.db."""
 
 from __future__ import annotations
 
@@ -87,6 +87,32 @@ class SourceTests(OpenCodeCase):
         self.assertEqual([row[0] for row in rows], ["opencode:msg-1"])
         self.assertEqual(rows[0][1:5], ("opencode", NOW, "ses-1", "deepseek-v4.1-flash"))
         self.assertEqual(rows[0][5:], (10, 30, 2, 20, 5))
+
+    def test_current_assistant_rows_are_indexed_alongside_legacy_rows(self):
+        self.add(message("msg-old"))
+        self.add(message("msg-new"))
+        self.source.execute("CREATE TABLE session_message(id TEXT PRIMARY KEY, session_id TEXT,"
+                            " type TEXT, time_created INTEGER, data TEXT)")
+        tokens = {"input": 7, "output": 8, "reasoning": 1, "cache": {"read": 9, "write": 2}}
+        self.source.execute("INSERT INTO session_message VALUES(?,?,?,?,?)", (
+            "msg-new", "ses-new", "assistant", int(NOW * 1000),
+            json.dumps({"model": {"id": "deepseek-v4.1-flash", "providerID": "opencode-go"},
+                        "tokens": tokens})))
+        self.source.execute("INSERT INTO session_message VALUES(?,?,?,?,?)", (
+            "msg-user", "ses-new", "user", int(NOW * 1000), json.dumps({"tokens": tokens})))
+        self.source.commit()
+        self.scan()
+        rows = self.rows()
+        self.assertEqual([row[0] for row in rows], ["opencode:msg-new", "opencode:msg-old"])
+        self.assertEqual(rows[0][1:5], ("opencode", NOW, "ses-new", "deepseek-v4.1-flash"))
+        self.assertEqual(rows[0][5:], (7, 9, 2, 8, 1))
+
+    def test_incompatible_current_table_does_not_hide_legacy_rows(self):
+        self.add(message("msg-old"))
+        self.source.execute("CREATE TABLE session_message(id TEXT PRIMARY KEY)")
+        self.source.commit()
+        self.scan()
+        self.assertEqual([row[0] for row in self.rows()], ["opencode:msg-old"])
 
     def test_updated_tokens_replace_on_rescan(self):
         self.add(message("msg-1"))
