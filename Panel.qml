@@ -403,7 +403,7 @@ Panel {
                           anchors.right: parent.right
                           anchors.verticalCenter: metricLabel.verticalCenter
                           text: Model.percentText(metric.modelData.percent) + " used"
-                          color: root.hostWidget && root.hostWidget.colorWarnings && Number(metric.modelData.percent) >= root.hostWidget.warningThreshold ? Model.usageColor(100) : root.contentForeground
+                          color: root.hostWidget && root.hostWidget.colorWarnings && Number(metric.modelData.percent) >= root.hostWidget.warningThreshold ? Model.usageColor(metric.modelData.percent) : root.contentForeground
                           font.family: root.contentFontFamily
                           font.pixelSize: Style.font.caption
                         }
@@ -415,7 +415,7 @@ Panel {
                         height: Style.space(7)
                         readonly property real gap: Style.space(3)
                         readonly property real fillWidth: Math.round(width * Math.min(1, Math.max(0, Number(metric.modelData.percent || 0) / 100)))
-                        readonly property color fillColor: root.hostWidget && root.hostWidget.colorWarnings && Number(metric.modelData.percent) >= root.hostWidget.warningThreshold ? Model.usageColor(100) : Model.usageColor(metric.modelData.percent)
+                        readonly property color fillColor: Model.usageColor(metric.modelData.percent)
 
                         Rectangle {
                           width: meter.fillWidth

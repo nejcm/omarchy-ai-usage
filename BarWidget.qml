@@ -333,7 +333,7 @@ BarWidget {
           Text {
             id: valueText
             text: Model.barValue(item.modelData, root.displayMode)
-            color: root.colorWarnings && Model.isWarning(item.modelData, root.warningThreshold) ? Model.usageColor(100) : button.foreground
+            color: root.colorWarnings && Model.isWarning(item.modelData, root.warningThreshold) ? Model.usageColor(Model.primaryPercent(item.modelData, true)) : button.foreground
             font.family: button.fontFamily
             font.pixelSize: button.fontSize
             renderType: Text.NativeRendering
