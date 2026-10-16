@@ -9,8 +9,8 @@ reset countdowns, and locally-logged token usage.
 [claude] 42%  [chatgpt] 18%  [opencode] 7%  [cursor] 2%  [grok] 5%  [antigravity] 12%  [z.ai] 25%
 ```
 
-The bar shows each provider's most-used limit. Hover the widget to see what
-the percentages mean. Click it to see every available limit, your plan, and
+The bar shows each provider's most-used limit. Hover the widget to see
+every limit (session, weekly, monthly) for each provider in the bar. Click it to see your plan and
 when your allowance resets; the header shows how long ago the reading was
 refreshed. The last reading is cached, so the bar fills in immediately after
 a shell restart. The panel stays within 60% of the screen height and scrolls
@@ -68,6 +68,11 @@ provider without a usable sign-in shows `–` and a hint on how to connect.
 If you already have a checkout, you can symlink its absolute path into the
 same plugin directory instead of cloning it. Keep that checkout in place;
 the shell loads the plugin from it.
+
+### Keyboard
+
+With the panel open: `Tab` switches panels, `h/j/k/l` or arrows move, `Enter` activates or
+opens settings, `r` refreshes, `Esc` closes.
 
 ### Settings
 

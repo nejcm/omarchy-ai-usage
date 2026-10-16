@@ -183,11 +183,27 @@ function barValue(row, mode) {
   return percentText(used)
 }
 
-function barTooltip(mode) {
-  var basis = mode === "remaining" ? "percent remaining of each provider's shortest limit window"
-    : mode === "both" ? "percent used and remaining of each provider's shortest limit window"
-    : "percent used of each provider's shortest limit window"
-  return "AI usage \u2014 " + basis
+function percentModeText(used, mode) {
+  var remaining = 100 - Math.round(used)
+  if (mode === "remaining") return percentText(remaining)
+  if (mode === "both") return percentText(used) + " / " + percentText(remaining)
+  return percentText(used)
+}
+
+function barTooltip(mode, rows) {
+  var lines = []
+  for (var i = 0; i < (rows || []).length; i++) {
+    if (!hasData(rows[i]) || !rows[i].metrics) continue
+    var parts = []
+    for (var j = 0; j < rows[i].metrics.length; j++) {
+      var metric = rows[i].metrics[j]
+      var value = Number(metric.percent)
+      if (metric.percent === null || metric.percent === undefined || isNaN(value)) continue
+      parts.push(metric.label + " " + percentModeText(value, mode))
+    }
+    if (parts.length > 0) lines.push(rows[i].name + ": " + parts.join(", "))
+  }
+  return lines.join("\n") || "AI usage"
 }
 
 function isWarning(row, threshold) {

@@ -303,7 +303,7 @@ BarWidget {
     hasVisualContent: true
     fixedWidth: root.navbarRows.length === 0 ? -1 : barRow.implicitWidth + scaledHorizontalMargin * 2
     dimmed: !root.loadedOnce && root.displayRows.length === 0
-    tooltipText: Model.barTooltip(root.displayMode)
+    tooltipText: Model.barTooltip(root.displayMode, root.navbarRows)
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.LeftButton) root.togglePanel()
     }

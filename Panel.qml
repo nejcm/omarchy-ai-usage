@@ -95,6 +95,9 @@ Panel {
         usageView.moveCursor(dx, dy)
         root.revealItem(usageView.cursorItem)
       }
+      onTextKey: function (text) {
+        if (text === "r" && root.hostWidget && root.hostWidget.refresh) root.hostWidget.refresh()
+      }
       onActivateRequested: {
         if (usageView.visible && usageView.cursorActive && usageView.activateCursor()) return
         root.showSettings(true)

@@ -234,9 +234,14 @@ assert.equal(expiredStale.status, "stale");
 assert.equal(statusHint(expiredStale), "Open claude to renew sign-in");
 assert.equal(connectHint(expiredStale), "Open claude to renew sign-in");
 assert.equal(anyNeedsSignIn([expiredStale]), true);
-assert.equal(barTooltip("used"), "AI usage \\u2014 percent used of each provider's shortest limit window");
-assert.equal(barTooltip("remaining"), "AI usage \\u2014 percent remaining of each provider's shortest limit window");
-assert.equal(barTooltip("both"), "AI usage \\u2014 percent used and remaining of each provider's shortest limit window");
+const weeklyRow = {provider:"claude", name:"Claude Code", status:"ok", metrics:[
+  {label:"Session", percent:10, windowMinutes:300}, {label:"Weekly", percent:42, windowMinutes:10080}]};
+const tipRows = [{provider:"claude", name:"Claude Code", status:"ok", metrics:[
+  {label:"Session", percent:10, windowMinutes:300}, {label:"Weekly", percent:42, windowMinutes:10080}]},
+  {provider:"cursor", name:"Cursor", status:"ok", metrics:[]}];
+assert.equal(barTooltip("used", tipRows), "Claude Code: Session " + percentText(10) + ", Weekly " + percentText(42));
+assert.equal(barTooltip("remaining", tipRows), "Claude Code: Session " + percentText(90) + ", Weekly " + percentText(58));
+assert.equal(barTooltip("used", []), "AI usage");
 assert.equal(TROUBLESHOOTING_URL, "https://github.com/nejcm/omarchy-ai-usage#troubleshooting");
 """
         run_node(self, script)
