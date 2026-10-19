@@ -169,6 +169,12 @@ for (const [value, color] of [[0,"#4ade80"], [75,"#4ade80"],
   [75.1,"#fb923c"], [90,"#fb923c"], [90.1,"#f87171"], [100,"#f87171"]]) {
   assert.equal(usageColor(value), color);
 }
+assert.equal(longTermPercent({status:"ok", metrics:[
+  {percent:0, windowMinutes:300}, {percent:95, windowMinutes:10080}]}), 95);
+assert.equal(longTermPercent({status:"ok", metrics:[
+  {percent:90, windowMinutes:300}, {percent:10, windowMinutes:10080}]}), 10);
+assert.equal(longTermPercent({status:"ok", metrics:[{percent:30}, {percent:60}]}), 60);
+assert.equal(longTermPercent({status:"unavailable", metrics:[]}), null);
 assert.equal(percentText(42.4), "42%");
 assert.equal(percentText(42.5), "43%");
 assert.equal(percentText(0), "0%");

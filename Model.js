@@ -174,6 +174,24 @@ function primaryPercent(row, highest) {
   return highest || shortest === null ? best : shortest
 }
 
+function longTermPercent(row) {
+  if (!hasData(row) || !row.metrics) return null
+  var longest = null
+  var value = null
+  for (var i = 0; i < row.metrics.length; i++) {
+    var metric = row.metrics[i]
+    var percent = Number(metric.percent)
+    var minutes = Number(metric.windowMinutes)
+    if (metric.percent === null || metric.percent === undefined || isNaN(percent)) continue
+    if (!isFinite(minutes) || minutes <= 0) continue
+    if (longest === null || minutes > longest || (minutes === longest && percent > value)) {
+      longest = minutes
+      value = percent
+    }
+  }
+  return value === null ? primaryPercent(row, true) : value
+}
+
 function barValue(row, mode) {
   var used = primaryPercent(row)
   if (used === null) return percentText(null)

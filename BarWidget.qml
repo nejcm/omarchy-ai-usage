@@ -333,7 +333,8 @@ BarWidget {
           Text {
             id: valueText
             text: Model.barValue(item.modelData, root.displayMode)
-            color: root.colorWarnings && Model.isWarning(item.modelData, root.warningThreshold) ? Model.usageColor(Model.primaryPercent(item.modelData, true)) : button.foreground
+            color: root.colorWarnings && valueText.longTerm !== null && valueText.longTerm >= root.warningThreshold ? Model.usageColor(valueText.longTerm) : button.foreground
+            readonly property var longTerm: Model.longTermPercent(item.modelData)
             font.family: button.fontFamily
             font.pixelSize: button.fontSize
             renderType: Text.NativeRendering
