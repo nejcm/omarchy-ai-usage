@@ -49,6 +49,23 @@ class ClaudeTests(ProviderCase):
         self.assertEqual(row["plan"], "Max 20x")
         self.assertEqual(row["resetAt"], "2026-10-11T18:00:00Z")
 
+    def test_plan_from_profile_overrides_stale_credentials(self):
+        auth = self.valid_auth()
+        auth["claudeAiOauth"].update(rateLimitTier="default_claude_ai", subscriptionType="pro")
+        write(self.home, self.AUTH, auth)
+        profile = {"organization": {"organization_type": "claude_max", "rate_limit_tier": "default_claude_max_5x"}}
+        request = FakeRequest({"oauth/usage": common.Response(200, load("claude_usage.json")),
+                               "oauth/profile": common.Response(200, profile)})
+        self.assertEqual(claude.collect(request, self.home, {})["plan"], "Max 5x")
+
+    def test_scoped_weekly_limit_listed(self):
+        payload = dict(load("claude_usage.json"), limits=[
+            {"kind": "weekly_all", "percent": 50},
+            {"kind": "weekly_scoped", "percent": 35, "resets_at": "2026-10-26T15:00:00Z",
+             "scope": {"model": {"id": None, "display_name": "Fable"}}}])
+        labels = [m["label"] for m in claude.parse(payload)]
+        self.assertEqual(labels, ["Session", "Weekly", "Fable weekly"])
+
     def test_missing_auth(self):
         self.assertEqual(claude.collect(FakeRequest({}), self.home, {})["status"], common.NOT_SIGNED_IN)
 

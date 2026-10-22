@@ -21,6 +21,7 @@ ABBREV = "C"
 PROVIDER = (ID, NAME, ABBREV)
 HOSTS = ("api.anthropic.com", "platform.claude.com")
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+PROFILE_URL = "https://api.anthropic.com/api/oauth/profile"
 TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
 CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 SCOPES = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
@@ -88,6 +89,16 @@ def parse(payload: dict) -> list:
             continue
         metric = common.metric(label, common.percent(bucket.get("utilization")),
                                common.reset_iso(bucket.get("resets_at")), minutes)
+        if metric:
+            metrics.append(metric)
+    for limit in payload.get("limits") or []:
+        if not isinstance(limit, dict) or limit.get("kind") != "weekly_scoped":
+            continue
+        model = ((limit.get("scope") or {}).get("model") or {}).get("display_name")
+        if not model:
+            continue
+        metric = common.metric(f"{model} weekly", common.percent(limit.get("percent")),
+                               common.reset_iso(limit.get("resets_at")), 7 * 24 * 60)
         if metric:
             metrics.append(metric)
     return metrics
@@ -441,6 +452,19 @@ def _usage(request, token: str):
     })
 
 
+def _live_plan(request, token: str, fallback: str) -> str:
+    """Credentials cache the plan from login, so an upgrade only shows in the profile."""
+    response = request("GET", PROFILE_URL, HOSTS, {
+        "Authorization": "Bearer " + token,
+        "anthropic-beta": "oauth-2025-04-20",
+    })
+    organization = response.data.get("organization") if response.status == 200 and isinstance(response.data, dict) else None
+    if not isinstance(organization, dict):
+        return fallback
+    kind = str(organization.get("organization_type") or "").removeprefix("claude_")
+    return plan_label({"rateLimitTier": organization.get("rate_limit_tier"), "subscriptionType": kind}) or fallback
+
+
 def collect(request, home: str, env: dict) -> dict:
     oauth, code, path = read_credentials(home, env)
     if code == common.NOT_SIGNED_IN:
@@ -469,4 +493,4 @@ def collect(request, home: str, env: dict) -> dict:
     if not isinstance(response.data, dict):
         return common.error_row(PROVIDER, "malformed-response", plan)
 
-    return common.finish(PROVIDER, parse(response.data), plan)
+    return common.finish(PROVIDER, parse(response.data), _live_plan(request, token, plan))
