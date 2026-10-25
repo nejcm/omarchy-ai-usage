@@ -378,7 +378,7 @@ function percentText(value) {
 }
 
 function usageColor(value) {
-  return value <= 75 ? "#4ade80" : value <= 90 ? "#fb923c" : "#f87171"
+  return value <= 75 ? "#4ade80" : value < 90 ? "#fb923c" : "#f87171"
 }
 
 function resetText(iso, nowMs) {

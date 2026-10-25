@@ -166,7 +166,7 @@ assert.equal(barValue({status:"ok", metrics:[
 assert.equal(barValue({status:"ok", metrics:[
   {percent:null, windowMinutes:1}, {percent:70, windowMinutes:300}]}), "70%");
 for (const [value, color] of [[0,"#4ade80"], [75,"#4ade80"],
-  [75.1,"#fb923c"], [90,"#fb923c"], [90.1,"#f87171"], [100,"#f87171"]]) {
+  [75.1,"#fb923c"], [89.9,"#fb923c"], [90,"#f87171"], [90.1,"#f87171"], [100,"#f87171"]]) {
   assert.equal(usageColor(value), color);
 }
 assert.equal(longTermPercent({status:"ok", metrics:[
