@@ -9,6 +9,7 @@ import io
 import json
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -80,7 +81,30 @@ class SharedTests(unittest.TestCase):
             self.assertEqual(usage.collect_all("/unused", {}, select=[]), [])
             enabled.assert_not_called()
 
-    def test_collect_all_survives_a_broken_provider(self):
+    def test_collect_all_runs_main_first_then_pool_in_order(self):
+        barrier = threading.Barrier(4, timeout=5)
+        events = []
+        baseline = threading.active_count()
+
+        class Ok:
+            NAME, ABBREV = "Ok", "K"
+
+            def __init__(self, provider_id, tag):
+                self.ID, self.tag = provider_id, tag
+
+            def collect(self, *args):
+                events.append("pool-start")
+                barrier.wait()
+                return {"provider": self.ID, "tag": self.tag}
+
+        class Main:
+            ID, NAME, ABBREV, MAIN_THREAD = "dup", "Main", "M", True
+
+            def collect(self, *args):
+                alone = threading.current_thread() is threading.main_thread() and threading.active_count() == baseline
+                events.append("main-done")
+                return {"provider": self.ID, "alone": alone}
+
         class Boom:
             ID, NAME, ABBREV = "boom", "Boom", "B"
 
@@ -88,13 +112,19 @@ class SharedTests(unittest.TestCase):
                 raise RuntimeError("boom")
 
         original = providers_pkg.REGISTRY
-        providers_pkg.REGISTRY = [Boom()]
+        providers_pkg.REGISTRY = [Ok("first", "a"), Main(), Ok("dup", "b"), Boom(), Ok("dup", "c"), Ok("last", "d")]
         try:
             rows = usage.collect_all("/nonexistent", {})
         finally:
             providers_pkg.REGISTRY = original
-        self.assertEqual(rows[0]["status"], common.ERROR)
-        self.assertEqual(rows[0]["error"], "internal-error")
+        self.assertEqual(events, ["main-done"] + ["pool-start"] * 4)
+        self.assertEqual(rows[0], {"provider": "first", "tag": "a"})
+        self.assertEqual(rows[1], {"provider": "dup", "alone": True})
+        self.assertEqual(rows[2], {"provider": "dup", "tag": "b"})
+        self.assertEqual((rows[3]["provider"], rows[3]["status"], rows[3]["error"]), ("boom", common.ERROR, "internal-error"))
+        self.assertEqual(rows[4], {"provider": "dup", "tag": "c"})
+        self.assertEqual(rows[5], {"provider": "last", "tag": "d"})
+        self.assertTrue(claude.MAIN_THREAD)
 
     def test_collect_all_is_serializable(self):
         with tempfile.TemporaryDirectory() as home:

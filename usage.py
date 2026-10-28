@@ -11,6 +11,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
 
 import providers
@@ -74,12 +75,18 @@ def collect_all(home: str, env: dict, request_fn=request, select=None) -> list:
     modules = providers.REGISTRY
     if select is not None:
         modules = [module for module in modules if module.ID in select]
-    rows = []
-    for module in modules:
+
+    def collect(module):
         try:
-            rows.append(module.collect(request_fn, home, env))
+            return module.collect(request_fn, home, env)
         except Exception:
-            rows.append(common.error_row((module.ID, module.NAME, module.ABBREV), "internal-error"))
+            return common.error_row((module.ID, module.NAME, module.ABBREV), "internal-error")
+
+    rows = [collect(module) if getattr(module, "MAIN_THREAD", False) else None for module in modules]
+    pooled = [index for index, module in enumerate(modules) if not getattr(module, "MAIN_THREAD", False)]
+    with ThreadPoolExecutor(max_workers=max(1, len(pooled))) as executor:
+        for index, row in zip(pooled, executor.map(collect, [modules[index] for index in pooled])):
+            rows[index] = row
     return rows
 
 
