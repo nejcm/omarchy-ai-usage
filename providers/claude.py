@@ -30,6 +30,8 @@ LOCK_STALE_SECONDS = 60
 LOCK_UPDATE_SECONDS = 5
 TOKEN_DEADLINE_SECONDS = 20
 MAX_EXPIRY_SECONDS = 365 * 24 * 60 * 60
+# Refresh forks and masks SIGTERM per thread, so collect before any other thread exists.
+MAIN_THREAD = True
 OAUTH_ERRORS = {"invalid_grant", "invalid_scope", "invalid_client",
                 "invalid_request", "unauthorized_client", "unsupported_grant_type"}
 _renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
