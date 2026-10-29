@@ -6,7 +6,7 @@ from datetime import date, timedelta
 
 WINDOWS = (("today", 0), ("7d", 6), ("30d", 29), ("6m", 182), ("1y", 364))
 SUMMARY = """
-SELECT provider, sum(input + output + reasoning), sum(output + reasoning),
+SELECT provider, sum(input + cache_write + output + reasoning), sum(output + reasoning),
        sum(input), sum(cache_read), sum(cache_write), sum(output), sum(reasoning)
 FROM events
 WHERE date(ts, 'unixepoch', 'localtime') >= ? AND date(ts, 'unixepoch', 'localtime') <= ?
@@ -17,13 +17,13 @@ SELECT DISTINCT provider, session FROM events
 WHERE date(ts, 'unixepoch', 'localtime') >= ? AND date(ts, 'unixepoch', 'localtime') <= ?
 """
 MODELS = """
-SELECT provider, model, sum(input + output + reasoning)
+SELECT provider, model, sum(input + cache_write + output + reasoning)
 FROM events
 WHERE date(ts, 'unixepoch', 'localtime') >= ? AND date(ts, 'unixepoch', 'localtime') <= ?
 GROUP BY provider, model
 """
 DAYS = """
-SELECT date(ts, 'unixepoch', 'localtime'), provider, sum(input + output + reasoning)
+SELECT date(ts, 'unixepoch', 'localtime'), provider, sum(input + cache_write + output + reasoning)
 FROM events
 WHERE date(ts, 'unixepoch', 'localtime') >= ? AND date(ts, 'unixepoch', 'localtime') <= ?
 GROUP BY 1, 2

@@ -119,7 +119,7 @@ button that reveals the rest and becomes **Show less**. Each reading keeps
 token counts, model IDs, session IDs, and timestamps. The cache also stores
 each log's path — which can include project directory names — and its read
 position so scans resume; prompt content is never stored. Cached reads stay out
-of the headline and appear in the breakdown and the cache-hit share. Until the
+of the headline and appear in the breakdown and the cache-hit share; cache writes count as input. Until the
 first scan finishes, the tab says "Scanning local logs…". When a finished scan
 finds nothing in the last year, the tab names the supported local sources
 and offers **Open settings**; if the All view has data but the chosen tool does

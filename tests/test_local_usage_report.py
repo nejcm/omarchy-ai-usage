@@ -43,45 +43,45 @@ def zero_weeks(first, count, providers):
 
 def golden_document():
     week = {
-        "tokens": 1361, "output": 346, "sessions": 3, "cacheHit": 607 / 1672,
+        "tokens": 1411, "output": 346, "sessions": 3, "cacheHit": 607 / 1672,
         "breakdown": {"input": 1015, "cacheRead": 607, "cacheWrite": 50, "output": 266, "reasoning": 80},
         "providers": [
             {"id": "codex", "tokens": 1050, "output": 150, "sessions": 1, "cacheHit": 400 / 1300,
              "breakdown": {"input": 900, "cacheRead": 400, "cacheWrite": 0, "output": 100, "reasoning": 50}},
-            {"id": "claude", "tokens": 311, "output": 196, "sessions": 2, "cacheHit": 207 / 372,
+            {"id": "claude", "tokens": 361, "output": 196, "sessions": 2, "cacheHit": 207 / 372,
              "breakdown": {"input": 115, "cacheRead": 207, "cacheWrite": 50, "output": 166, "reasoning": 30}},
         ],
         "models": [{"name": "gpt-6.1-sol", "provider": "codex", "tokens": 1050},
-                   {"name": "claude-opus-5-5", "provider": "claude", "tokens": 300},
+                   {"name": "claude-opus-5-5", "provider": "claude", "tokens": 350},
                    {"name": "claude-haiku-4-5", "provider": "claude", "tokens": 11}],
         "days": zero_days("2026-09-26", 7, ["claude", "codex"]),
     }
-    week["days"][-2]["providers"] = {"claude": 311, "codex": 1050}
+    week["days"][-2]["providers"] = {"claude": 361, "codex": 1050}
     month = {
-        "tokens": 1372, "output": 350, "sessions": 4, "cacheHit": 616 / 1688,
+        "tokens": 1422, "output": 350, "sessions": 4, "cacheHit": 616 / 1688,
         "breakdown": {"input": 1022, "cacheRead": 616, "cacheWrite": 50, "output": 269, "reasoning": 81},
         "providers": [
             {"id": "codex", "tokens": 1050, "output": 150, "sessions": 1, "cacheHit": 400 / 1300,
              "breakdown": {"input": 900, "cacheRead": 400, "cacheWrite": 0, "output": 100, "reasoning": 50}},
-            {"id": "claude", "tokens": 311, "output": 196, "sessions": 2, "cacheHit": 207 / 372,
+            {"id": "claude", "tokens": 361, "output": 196, "sessions": 2, "cacheHit": 207 / 372,
              "breakdown": {"input": 115, "cacheRead": 207, "cacheWrite": 50, "output": 166, "reasoning": 30}},
             {"id": "opencode", "tokens": 11, "output": 4, "sessions": 1, "cacheHit": 9 / 16,
              "breakdown": {"input": 7, "cacheRead": 9, "cacheWrite": 0, "output": 3, "reasoning": 1}},
         ],
         "models": [{"name": "gpt-6.1-sol", "provider": "codex", "tokens": 1050},
-                   {"name": "claude-opus-5-5", "provider": "claude", "tokens": 300},
+                   {"name": "claude-opus-5-5", "provider": "claude", "tokens": 350},
                    {"name": "claude-haiku-4-5", "provider": "claude", "tokens": 11},
                    {"name": "test-model", "provider": "opencode", "tokens": 11}],
         "days": zero_days("2026-09-03", 30, ["claude", "codex", "opencode"]),
     }
     month["days"][-8]["providers"] = {"claude": 0, "codex": 0, "opencode": 11}
-    month["days"][-2]["providers"] = {"claude": 311, "codex": 1050, "opencode": 0}
+    month["days"][-2]["providers"] = {"claude": 361, "codex": 1050, "opencode": 0}
     half = dict(month, days=zero_weeks("2026-04-04", 26, ["claude", "codex", "opencode"]))
     half["days"][-2]["providers"] = {"claude": 0, "codex": 0, "opencode": 11}
-    half["days"][-1]["providers"] = {"claude": 311, "codex": 1050, "opencode": 0}
+    half["days"][-1]["providers"] = {"claude": 361, "codex": 1050, "opencode": 0}
     year = dict(month, days=zero_weeks("2025-10-04", 52, ["claude", "codex", "opencode"]))
     year["days"][-2]["providers"] = {"claude": 0, "codex": 0, "opencode": 11}
-    year["days"][-1]["providers"] = {"claude": 311, "codex": 1050, "opencode": 0}
+    year["days"][-1]["providers"] = {"claude": 361, "codex": 1050, "opencode": 0}
     return {"usage": {"scanning": False, "windows": {"today": EMPTY, "7d": week, "30d": month,
                                                     "6m": half, "1y": year}}}
 
@@ -132,18 +132,18 @@ class SummaryTests(ReportCase):
         self.add("c", NOW - 3 * 86400, session="s2", model="m1", input=100)
         self.add("d", NOW - 40 * 86400, session="s3", model="m9", input=1000)
         today = self.windows()["today"]
-        self.assertEqual(today["tokens"], 23)
+        self.assertEqual(today["tokens"], 28)
         self.assertEqual(today["output"], 12)
         self.assertEqual(today["sessions"], 1)
         self.assertEqual(today["cacheHit"], 30 / 46)
         self.assertEqual(today["breakdown"], {"input": 11, "cacheRead": 30, "cacheWrite": 5, "output": 6, "reasoning": 6})
         self.assertEqual(today["providers"], [{
-            "id": "claude", "tokens": 23, "output": 12, "sessions": 1, "cacheHit": 30 / 46,
+            "id": "claude", "tokens": 28, "output": 12, "sessions": 1, "cacheHit": 30 / 46,
             "breakdown": {"input": 11, "cacheRead": 30, "cacheWrite": 5, "output": 6, "reasoning": 6}}])
-        self.assertEqual(today["models"], [{"name": "m1", "provider": "claude", "tokens": 20},
+        self.assertEqual(today["models"], [{"name": "m1", "provider": "claude", "tokens": 25},
                                            {"name": "m2", "provider": "claude", "tokens": 3}])
         week = self.windows()["7d"]
-        self.assertEqual(week["tokens"], 123)
+        self.assertEqual(week["tokens"], 128)
         self.assertEqual(week["sessions"], 2)
 
     def test_future_events_are_excluded(self):
@@ -334,7 +334,7 @@ class GoldenTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in windows["7d"]["providers"]], ["claude"])
         self.assertEqual([row["name"] for row in windows["7d"]["models"]],
                          ["claude-opus-5-5", "claude-haiku-4-5"])
-        self.assertEqual(windows["7d"]["tokens"], 311)
+        self.assertEqual(windows["7d"]["tokens"], 361)
         _, document = self.run_cli("--provider", "cursor")
         self.assertEqual(document["usage"]["windows"]["7d"]["providers"], [])
 
