@@ -124,11 +124,11 @@ BarWidget {
   }
 
   // Timer and panel-open refreshes are interval-gated from the last attempt or a fully covered cache.
-  function refreshIfStale() {
+  function refreshIfStale(providersOnly) {
     var cachedMs = displayRows.length === enabledProviders.length ? cachedAtMs : 0
     var lastMs = Math.max(lastAttemptMs, cachedMs)
     if (lastMs === 0 || Date.now() - lastMs >= refreshMs) refresh()
-    else if (root.usage === null) Qt.callLater(root.refreshUsage)
+    else if (!providersOnly && root.usage === null) Qt.callLater(root.refreshUsage)
   }
 
   function applyOutput(text) {
@@ -275,12 +275,17 @@ BarWidget {
     onLoadFailed: root.cacheChecked = true
   }
 
+  // Poll so a tick landing just short of refreshMs delays the refresh 15s, not a whole interval.
   Timer {
-    interval: root.refreshMs
+    property bool polled: false
+    interval: 15000
     repeat: true
     running: root.cacheChecked && root.enabledProviders.length > 0
     triggeredOnStart: true
-    onTriggered: root.refreshIfStale()
+    onTriggered: {
+      root.refreshIfStale(polled)
+      polled = true
+    }
   }
 
   Loader {
