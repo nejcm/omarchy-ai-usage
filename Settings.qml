@@ -210,6 +210,16 @@ Column {
     font.pixelSize: Style.font.caption
     wrapMode: Text.WordWrap
   }
+  Toggle {
+    width: parent.width
+    label: "Show weekly limit"
+    titleSize: Style.font.body
+    description: "Also show the longest limit after the session one, as session·weekly."
+    checked: root.hostWidget.showLongTerm
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+    onClicked: root.hostWidget.saveSetting("showLongTerm", !checked)
+  }
 
   PanelSeparator {
     foreground: root.foreground

@@ -15,6 +15,7 @@ Item {
     property var enabledProviders: []
     property int refreshMs: 300000
     property string displayMode: "used"
+    property bool showLongTerm: false
     property int warningThreshold: 80
     property bool colorWarnings: true
     property bool desktopNotifications: false
@@ -51,6 +52,7 @@ Item {
     property bool colorWarnings: true
     property int warningThreshold: 80
     property string displayMode: "used"
+    property bool showLongTerm: false
     property int refreshMs: 300000
     property bool desktopNotifications: false
     property var saved: []

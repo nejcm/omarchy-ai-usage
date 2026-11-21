@@ -87,6 +87,7 @@ Reopening starts on Limits.
 | Provider order | Move up, down, or to top to reorder both the bar and panel | Claude Code, Codex, OpenCode, Cursor, Grok, Antigravity, Z.ai |
 | Refresh interval | 1, 2, 3, 5, 10, 15, 30, or 60 minutes | 5 minutes |
 | Navbar display | Used %, remaining %, or both as `used / remaining` | Used % |
+| Show weekly limit | Also show the longest limit (e.g. weekly) after the session one, as `session·weekly` | Off |
 | Warn at usage | Global threshold from 1–100% used | 80% |
 | Warning colors | Highlight limits at or above the threshold | On |
 | Desktop notifications | Notify when a limit reaches the threshold | Off |

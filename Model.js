@@ -21,6 +21,7 @@ var SETTING_DEFAULTS = {
   hiddenProviders: [],
   refreshIntervalSec: 300,
   displayMode: "used",
+  showLongTerm: false,
   warningThreshold: 80,
   colorWarnings: true,
   desktopNotifications: false,
@@ -174,9 +175,11 @@ function primaryPercent(row, highest) {
   return highest || shortest === null ? best : shortest
 }
 
-function longTermPercent(row) {
+// distinct: null unless a longer window than the shortest exists, so single-limit rows don't repeat.
+function longTermPercent(row, distinct) {
   if (!hasData(row) || !row.metrics) return null
   var longest = null
+  var shortest = null
   var value = null
   for (var i = 0; i < row.metrics.length; i++) {
     var metric = row.metrics[i]
@@ -184,21 +187,22 @@ function longTermPercent(row) {
     var minutes = Number(metric.windowMinutes)
     if (metric.percent === null || metric.percent === undefined || isNaN(percent)) continue
     if (!isFinite(minutes) || minutes <= 0) continue
+    if (shortest === null || minutes < shortest) shortest = minutes
     if (longest === null || minutes > longest || (minutes === longest && percent > value)) {
       longest = minutes
       value = percent
     }
   }
+  if (distinct) return longest !== null && longest > shortest ? value : null
   return value === null ? primaryPercent(row, true) : value
 }
 
-function barValue(row, mode) {
+function barValue(row, mode, showLongTerm) {
   var used = primaryPercent(row)
   if (used === null) return percentText(null)
-  var remaining = 100 - Math.round(used)
-  if (mode === "remaining") return percentText(remaining)
-  if (mode === "both") return percentText(used) + " / " + percentText(remaining)
-  return percentText(used)
+  var longTerm = showLongTerm ? longTermPercent(row, true) : null
+  var text = percentModeText(used, mode)
+  return longTerm === null ? text : text + "·" + percentModeText(longTerm, mode)
 }
 
 function percentModeText(used, mode) {

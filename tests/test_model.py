@@ -94,6 +94,13 @@ assert.deepEqual(orderedRows(rows, ["cursor", "claude"]).map(row => row.provider
 assert.equal(barValue(rows[0], "remaining"), "30%");
 assert.equal(barValue(rows[0], "both"), "70% / 30%");
 assert.equal(barValue({status:"unavailable"}, "remaining"), "–");
+const windowed = {status:"ok", metrics:[{percent:42, windowMinutes:300}, {percent:12, windowMinutes:10080}]};
+assert.equal(barValue(windowed, "used"), "42%");
+assert.equal(barValue(windowed, "used", true), "42%·12%");
+assert.equal(barValue(windowed, "remaining", true), "58%·88%");
+assert.equal(barValue(windowed, "both", true), "42% / 58%·12% / 88%");
+assert.equal(barValue(rows[0], "used", true), "70%");
+assert.equal(barValue({status:"ok", metrics:[{percent:30, windowMinutes:300}]}, "used", true), "30%");
 for (const minute of REFRESH_MINUTES) assert.equal(refreshSeconds(minute * 60), minute * 60);
 for (const value of [0, -1, "bad", 240, Infinity, null]) assert.equal(refreshSeconds(value), 300);
 assert.equal(warningThreshold("bad"), 80);

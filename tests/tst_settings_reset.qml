@@ -14,6 +14,7 @@ Item {
     property var enabledProviders: []
     property int refreshMs: 300000
     property string displayMode: "used"
+    property bool showLongTerm: false
     property int warningThreshold: 80
     property bool colorWarnings: true
     property bool desktopNotifications: false

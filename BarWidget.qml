@@ -28,6 +28,7 @@ BarWidget {
   readonly property var displayRows: Model.orderedRows(rows, enabledProviders)
   readonly property var navbarRows: Model.orderedRows(rows, Model.selectedProviders(enabledProviders, setting("hiddenProviders", Model.SETTING_DEFAULTS.hiddenProviders)))
   readonly property string displayMode: setting("displayMode", Model.SETTING_DEFAULTS.displayMode)
+  readonly property bool showLongTerm: setting("showLongTerm", Model.SETTING_DEFAULTS.showLongTerm) === true
   readonly property bool colorWarnings: setting("colorWarnings", Model.SETTING_DEFAULTS.colorWarnings) === true
   readonly property bool desktopNotifications: setting("desktopNotifications", Model.SETTING_DEFAULTS.desktopNotifications) === true
   readonly property bool localUsage: setting("localUsage", Model.SETTING_DEFAULTS.localUsage) === true
@@ -337,7 +338,7 @@ BarWidget {
 
           Text {
             id: valueText
-            text: Model.barValue(item.modelData, root.displayMode)
+            text: Model.barValue(item.modelData, root.displayMode, root.showLongTerm)
             color: root.colorWarnings && valueText.longTerm !== null && valueText.longTerm >= root.warningThreshold ? Model.usageColor(valueText.longTerm) : button.foreground
             readonly property var longTerm: Model.longTermPercent(item.modelData)
             font.family: button.fontFamily
