@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
 
 import providers
+import local_usage.antigravity
 import local_usage.claude
 import local_usage.codex
 import local_usage.opencode
@@ -23,7 +24,8 @@ import local_usage.scan
 from providers import common
 
 TIMEOUT = 10
-USAGE_SOURCES = {"claude": local_usage.claude.source, "codex": local_usage.codex.source, "opencode": local_usage.opencode.query}
+USAGE_SOURCES = {"claude": local_usage.claude.source, "codex": local_usage.codex.source, "opencode": local_usage.opencode.query,
+                "antigravity": local_usage.antigravity.query}
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):

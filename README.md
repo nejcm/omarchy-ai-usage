@@ -111,7 +111,7 @@ reads the logs your coding tools already write on this machine and shows token
 totals for Today, 7D (the default), 30D, 6M, and 1Y: a summary row, stacked
 bars (per day for the short windows, per week for 6M and 1Y), totals by tool
 and by model, and a token breakdown with each bucket's share. Choose **All**
-or one enabled local source — Claude Code, Codex, or OpenCode — to scope
+or one enabled local source — Claude Code, Codex, OpenCode, or Antigravity — to scope
 every figure to that tool's logs; the window choice stays independent, and
 disabling the chosen tool returns the tab to All. The model list shows the five busiest entries with an **N more**
 button that reveals the rest and becomes **Show less**. Each reading keeps
@@ -163,6 +163,7 @@ skipped.
 | Claude Code | `~/.claude/projects/**/*.jsonl` |
 | Codex | `~/.codex/sessions/**/*.jsonl`, `~/.codex/archived_sessions/**/*.jsonl` |
 | OpenCode | `~/.local/share/opencode/opencode.db` (read-only) |
+| Antigravity | `~/.gemini/antigravity-cli/conversations/*.db` (read-only) |
 
 The `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and `XDG_DATA_HOME`/`OPENCODE_DATA_DIR`
 overrides apply here too; no other paths are read.
@@ -231,12 +232,14 @@ omarchy plugin remove io.github.nejcm.ai-usage
 | `Panel.qml` | Usage panel, navigation, reset countdowns, and scrolling |
 | `Settings.qml` | Provider controls and display/notification preferences |
 | `LocalUsage.qml` | Usage tab: local token, tool, and model totals |
+| `ChipGroup.qml` | Wrapping chip selector for the Usage tab filters |
 | `Model.js` | Shared formatting, provider selection, cache merging, and warning-period logic |
 | `usage.py` | One-shot collector, CLI, and shared HTTP transport |
 | `local_usage/scan.py` | Incremental local-log scan into the SQLite usage cache |
 | `local_usage/claude.py` | Claude Code transcript source for the usage scan |
 | `local_usage/codex.py` | Codex session-rollout source for the usage scan |
 | `local_usage/opencode.py` | OpenCode database source for the usage scan |
+| `local_usage/antigravity.py` | Antigravity CLI conversation-database source for the usage scan |
 | `local_usage/report.py` | Aggregates the usage cache into windowed token and model totals |
 | `providers/` | Quota collection only: provider-specific credential readers and response parsers (the usage sources reuse its path and time helpers) |
 | `tests/` | Offline tests and redacted provider fixtures |

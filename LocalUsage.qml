@@ -49,7 +49,7 @@ Column {
   readonly property string usageMessage: {
     if (root.usageNoProviders) return "No providers enabled"
     if (!usage || usageScanning) return "Scanning local logs…"
-    if (root.usageOnboarding) return "No local usage in the last year. Claude Code, Codex, and OpenCode write the logs this tab reads."
+    if (root.usageOnboarding) return "No local usage in the last year. Claude Code, Codex, OpenCode, and Antigravity write the logs this tab reads."
     if (root.usageToolEmpty) return (Model.PROVIDER_INFO[root.usageTool] ? Model.PROVIDER_INFO[root.usageTool].name : root.usageTool) + " has no local usage in the last year"
     return ""
   }
@@ -185,7 +185,7 @@ Column {
     width: parent.width
     spacing: Style.space(8)
 
-    ButtonGroup {
+    ChipGroup {
       id: windowSelector
       width: parent.width
       options: [
@@ -204,7 +204,7 @@ Column {
       }
     }
 
-    ButtonGroup {
+    ChipGroup {
       id: toolSelector
       visible: root.usageFilterOptions.length > 1
       width: parent.width

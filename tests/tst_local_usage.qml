@@ -147,7 +147,7 @@ Item {
       compare(Model.compactNumber(37000000), "37M")
       compare(Model.share(25, 100), "25%")
       compare(Model.share(0, 0), "0%")
-      compare(Model.USAGE_PROVIDERS, ["claude", "codex", "opencode"])
+      compare(Model.USAGE_PROVIDERS, ["claude", "codex", "opencode", "antigravity"])
       compare(Model.localUsageProviders(["codex", "cursor", "claude"]), ["claude", "codex"])
       compare(Model.localUsageProviders([]), [])
       compare(Model.localUsageProviders(undefined), [])
@@ -531,7 +531,7 @@ Item {
       panelHost.usage = { scanning: false, windows: { "1y": { providers: [], models: [] } } }
       compare(usageTab().usageFound, false)
       compare(usageTab().usageOnboarding, true)
-      compare(usageTab().usageMessage, "No local usage in the last year. Claude Code, Codex, and OpenCode write the logs this tab reads.")
+      compare(usageTab().usageMessage, "No local usage in the last year. Claude Code, Codex, OpenCode, and Antigravity write the logs this tab reads.")
       panelHost.usage = { scanning: false, windows: { "1y": { providers: [{ id: "claude", tokens: 5, breakdown: {} }] } } }
       compare(usageTab().usageFound, true)
       compare(usageTab().usageOnboarding, false)

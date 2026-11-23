@@ -31,7 +31,7 @@ var SETTING_DEFAULTS = {
 var USAGE_WINDOWS = ["today", "7d", "30d", "6m", "1y"]
 var USAGE_WINDOW_DAYS = { today: 1, "7d": 7, "30d": 30, "6m": 183, "1y": 365 }
 var USAGE_PROVIDER_COLORS = { claude: "#d97757", codex: "#10a37f", opencode: "#8b5cf6" }
-var USAGE_PROVIDERS = ["claude", "codex", "opencode"]
+var USAGE_PROVIDERS = ["claude", "codex", "opencode", "antigravity"]
 
 function providerList(value) {
   return value && typeof value === "object" && typeof value.length === "number" ? Array.prototype.slice.call(value) : []
