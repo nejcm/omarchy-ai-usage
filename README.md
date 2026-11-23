@@ -38,7 +38,7 @@ when needed.
 | OpenCode Go | Session, weekly, and monthly limits | Yes |
 | Cursor | Total usage, Cursor models, and other models | No |
 | Grok | Weekly shared pool and pay-as-you-go cap | No |
-| Antigravity | Shared Gemini and Claude/GPT pools, rolling 5-hour and weekly windows | No |
+| Antigravity | Gemini 5-hour and weekly pools, every other weekly pool, other 5-hour pools once used | No |
 | Z.ai | Session and weekly limits, and monthly web searches | No |
 
 The limits view reports subscription allowances. The Usage tab reports local
@@ -150,7 +150,7 @@ renewal stays with their own tools. See [Claude OAuth refresh](#claude-oauth-ref
 | OpenCode | `~/.local/share/opencode/auth.json` | `XDG_DATA_HOME`, `OPENCODE_DATA_DIR` |
 | Cursor | `~/.config/cursor/auth.json` | `XDG_CONFIG_HOME` |
 | Grok | `~/.grok/auth.json` | `GROK_HOME` |
-| Antigravity | `~/.gemini/antigravity-cli/antigravity-oauth-token` | — |
+| Antigravity | `~/.gemini/antigravity-cli/antigravity-oauth-token`, else the Secret Service keyring (`secret-tool`) | — |
 | Z.ai | `~/.chelper/config.yaml` (`api_key`), else the Z.ai `ANTHROPIC_AUTH_TOKEN` in `~/.claude/settings.json` | `CLAUDE_CONFIG_DIR` |
 
 Local usage never contacts anything: it opens the tools' logs read-only and
@@ -196,9 +196,6 @@ Some credential stores are not supported:
   reads `auth.json` only; if the key is absent there, it shows not signed in.
 - Cursor uses the CLI/agent credential file. The Cursor IDE's VS Code
   `state.vscdb` credential store is not read.
-- Antigravity normally keeps its token in the OS keyring; only the plaintext
-  `agy` fallback file (headless Linux) is read. If the keyring holds the token
-  the provider shows not signed in.
 - Z.ai has no key-entry UI here. It reads the key Z.ai's `chelper` CLI stores at
   `~/.chelper/config.yaml`, otherwise the `ANTHROPIC_AUTH_TOKEN` in
   `~/.claude/settings.json` when Claude Code is configured against Z.ai
@@ -340,7 +337,7 @@ recognize a rejected refresh; that body is not included in usage output.
 | OpenCode | `opencode.ai` |
 | Cursor | `api2.cursor.sh` |
 | Grok | `cli-chat-proxy.grok.com` |
-| Antigravity | `cloudcode-pa.googleapis.com` |
+| Antigravity | `daily-cloudcode-pa.googleapis.com` |
 | Z.ai | `api.z.ai` |
 
 ### Claude OAuth refresh

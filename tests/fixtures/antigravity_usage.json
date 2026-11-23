@@ -1,12 +1,15 @@
 {
   "groups": [
-    {"buckets": [
-      {"bucketId": "gemini-5h", "remainingFraction": 0.92, "resetTime": "2026-08-23T04:25:14Z"},
-      {"bucketId": "gemini-weekly", "remainingFraction": 0.86, "resetTime": "2026-08-25T20:40:28Z"}
+    {"displayName": "Gemini Models", "buckets": [
+      {"bucketId": "gemini-weekly", "window": "weekly", "remainingFraction": 0.86, "resetTime": "2026-08-25T20:40:28Z"},
+      {"bucketId": "gemini-5h", "window": "5h", "remainingFraction": 0.92, "resetTime": "2026-08-23T04:25:14Z"}
     ]},
-    {"buckets": [
-      {"bucketId": "3p-5h", "remainingFraction": 1, "resetTime": "2026-08-23T04:25:14Z"},
-      {"bucketId": "3p-weekly", "remainingFraction": 1, "resetTime": "2026-08-29T23:25:14Z"}
+    {"displayName": "Claude and GPT models", "buckets": [
+      {"bucketId": "3p-weekly", "window": "weekly", "remainingFraction": 1, "resetTime": "2026-08-29T23:25:14Z"},
+      {"bucketId": "3p-5h", "window": "5h", "remainingFraction": 1, "resetTime": "2026-08-23T04:25:14Z"}
+    ]},
+    {"displayName": "Gemini 4 Argon", "buckets": [
+      {"bucketId": "gemini-argon-wtu-weekly", "window": "weekly", "remainingFraction": 1, "resetTime": "2026-08-29T23:25:14Z"}
     ]}
   ]
 }

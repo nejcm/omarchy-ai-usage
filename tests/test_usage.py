@@ -145,7 +145,7 @@ class SharedTests(unittest.TestCase):
                 "GetPlanInfo": common.Response(200, load("cursor_plan.json")),
                 "billing?format=credits": common.Response(200, load("grok_usage.json")),
                 "settings": common.Response(200, {"subscription_tier_display": "SuperGrok Heavy"}),
-                "cloudcode-pa.googleapis.com": common.Response(200, load("antigravity_usage.json")),
+                "daily-cloudcode-pa.googleapis.com": common.Response(200, load("antigravity_usage.json")),
                 "api.z.ai": common.Response(200, load("zai_quota.json")),
             }
 

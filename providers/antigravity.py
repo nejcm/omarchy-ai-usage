@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from datetime import datetime, timezone
 
 from . import common
@@ -12,15 +13,14 @@ ID = "antigravity"
 NAME = "Antigravity"
 ABBREV = "A"
 PROVIDER = (ID, NAME, ABBREV)
-HOSTS = ("cloudcode-pa.googleapis.com",)
-USAGE_URL = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
-
-BUCKETS = (
-    ("gemini-5h", "Session", 5 * 60),
-    ("gemini-weekly", "Weekly", 7 * 24 * 60),
-    ("3p-5h", "Claude", 5 * 60),
-    ("3p-weekly", "Claude Weekly", 7 * 24 * 60),
-)
+# `agy`'s endpoint; the production host reports no Gemini usage for personal accounts.
+HOSTS = ("daily-cloudcode-pa.googleapis.com",)
+USAGE_URL = "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
+# shortcut: Google returns the Gemini groups only to an Antigravity client UA; bump if they disappear again.
+USER_AGENT = "antigravity/hub/2.24.0 (aidev_client; os_type=linux; arch=x64; cl=963137146)"
+KEYRING_LOOKUP = ("secret-tool", "lookup", "service", "gemini", "username", "antigravity")
+WINDOWS = {"5h": ("", 5 * 60), "weekly": (" Weekly", 7 * 24 * 60)}
+FAMILY_ORDER = ("Gemini", "Claude/GPT")
 
 
 def credentials_path(home: str, env: dict) -> str:
@@ -28,13 +28,28 @@ def credentials_path(home: str, env: dict) -> str:
     return os.path.join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token")
 
 
+def _read_keyring(env: dict):
+    try:
+        result = subprocess.run(KEYRING_LOOKUP, stdin=subprocess.DEVNULL, capture_output=True,
+                                encoding="utf-8", errors="replace", env=env, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout if result.returncode == 0 and result.stdout.strip() else None
+
+
 def read_credentials(home: str, env: dict):
     try:
         with open(credentials_path(home, env), encoding="utf-8") as handle:
-            data = json.load(handle)
+            text = handle.read()
     except FileNotFoundError:
-        return None, common.NOT_SIGNED_IN
+        text = _read_keyring(env)
+        if text is None:
+            return None, common.NOT_SIGNED_IN
     except (OSError, ValueError):
+        return None, "malformed-auth"
+    try:
+        data = json.loads(text)
+    except ValueError:
         return None, "malformed-auth"
     document = data if isinstance(data, dict) else {}
     token = document.get("token")
@@ -51,43 +66,54 @@ def _is_expired(value) -> bool:
     return expiry is not None and expiry <= datetime.now(timezone.utc)
 
 
+def _family(bucket_id: str, group: dict) -> str:
+    if bucket_id in ("gemini-5h", "gemini-weekly"):
+        return "Gemini"
+    if bucket_id.startswith("3p-"):
+        return "Claude/GPT"
+    return str(group.get("displayName") or bucket_id).strip()
+
+
+def _rank(metric: dict) -> tuple:
+    family = metric["family"]
+    return (FAMILY_ORDER.index(family) if family in FAMILY_ORDER else len(FAMILY_ORDER), metric["windowMinutes"])
+
+
 def parse(payload: dict) -> list:
+    """Every 5-hour and weekly pool, except unused 5-hour pools other than Gemini's."""
     groups = payload.get("groups")
     if not isinstance(groups, list):
         return []
-    buckets = {}
+    seen = set()
+    metrics = []
     for group in groups:
-        if not isinstance(group, dict):
+        if not isinstance(group, dict) or not isinstance(group.get("buckets"), list):
             continue
-        group_buckets = group.get("buckets")
-        if not isinstance(group_buckets, list):
-            continue
-        for bucket in group_buckets:
-            if not isinstance(bucket, dict):
+        for bucket in group["buckets"]:
+            if not isinstance(bucket, dict) or bucket.get("disabled") is True:
                 continue
             bucket_id = str(bucket.get("bucketId") or "").strip()
+            window = WINDOWS.get(str(bucket.get("window") or bucket_id.rsplit("-", 1)[-1]))
             fraction = common.number(bucket.get("remainingFraction"))
-            if bucket_id in buckets or fraction is None:
+            if not bucket_id or bucket_id in seen or window is None or fraction is None:
                 continue
-            buckets[bucket_id] = (max(0.0, min(1.0, fraction)), common.reset_iso(bucket.get("resetTime")))
-
-    metrics = []
-    for bucket_id, label, minutes in BUCKETS:
-        entry = buckets.get(bucket_id)
-        if entry is None:
-            continue
-        fraction, reset = entry
-        metric = common.metric(label, common.percent((1.0 - fraction) * 100.0), reset, minutes)
-        if metric:
-            metrics.append(metric)
-    return metrics
+            seen.add(bucket_id)
+            family = _family(bucket_id, group)
+            suffix, minutes = window
+            used = common.percent((1.0 - max(0.0, min(1.0, fraction))) * 100.0)
+            if used == 0 and not suffix and family != "Gemini":
+                continue
+            metric = common.metric(family + suffix, used, common.reset_iso(bucket.get("resetTime")), minutes)
+            if metric:
+                metrics.append(dict(metric, family=family))
+    return [{k: v for k, v in metric.items() if k != "family"} for metric in sorted(metrics, key=_rank)]
 
 
 def _headers(token: str) -> dict:
     return {
         "Authorization": "Bearer " + token,
         "Content-Type": "application/json",
-        "User-Agent": "antigravity",
+        "User-Agent": USER_AGENT,
     }
 
 
