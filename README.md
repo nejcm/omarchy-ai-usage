@@ -16,9 +16,7 @@ refreshed. The last reading is cached, so the bar fills in immediately after
 a shell restart. The panel stays within 60% of the screen height and scrolls
 when needed.
 
-![AI usage panel with provider limits and reset times](preview.png)
-![AI usage panel with provider limits and reset times](preview-2.png)
-![Usage tab with local token totals by day, tool, and model](preview-3.png)
+![AI usage panel: provider limits, local token usage, and settings](preview-panels.png)
 
 ## User guide
 
