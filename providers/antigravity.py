@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from . import common
 
@@ -21,6 +21,9 @@ USER_AGENT = "antigravity/hub/2.24.0 (aidev_client; os_type=linux; arch=x64; cl=
 KEYRING_LOOKUP = ("secret-tool", "lookup", "service", "gemini", "username", "antigravity")
 WINDOWS = {"5h": ("", 5 * 60), "weekly": (" Weekly", 7 * 24 * 60)}
 FAMILY_ORDER = ("Gemini", "Claude/GPT")
+# Some backend replicas answer with an untracked quota: everything unused, each reset at now + window.
+ATTEMPTS = 3
+FRESH_TOLERANCE = timedelta(minutes=1)
 
 
 def credentials_path(home: str, env: dict) -> str:
@@ -109,6 +112,19 @@ def parse(payload: dict) -> list:
     return [{k: v for k, v in metric.items() if k != "family"} for metric in sorted(metrics, key=_rank)]
 
 
+def _is_untracked(payload: dict, now: datetime) -> bool:
+    buckets = [bucket for group in payload.get("groups") or [] if isinstance(group, dict)
+               for bucket in group.get("buckets") or [] if isinstance(bucket, dict)]
+    for bucket in buckets:
+        window = WINDOWS.get(str(bucket.get("window") or str(bucket.get("bucketId") or "").rsplit("-", 1)[-1]))
+        reset = common.parse_time(bucket.get("resetTime"))
+        if common.number(bucket.get("remainingFraction")) != 1 or window is None or reset is None:
+            return False
+        if abs(reset - now - timedelta(minutes=window[1])) > FRESH_TOLERANCE:
+            return False
+    return bool(buckets)
+
+
 def _headers(token: str) -> dict:
     return {
         "Authorization": "Bearer " + token,
@@ -128,10 +144,13 @@ def collect(request, home: str, env: dict) -> dict:
         return common.row(PROVIDER, common.EXPIRED, error="auth-expired")
 
     headers = _headers(credentials["access_token"])
-    response = request("POST", USAGE_URL, HOSTS, headers, body=b"{}")
-    if response.status != 200:
-        return common.status_row(PROVIDER, response)
-    if not isinstance(response.data, dict):
-        return common.error_row(PROVIDER, "malformed-response")
+    for _ in range(ATTEMPTS):
+        response = request("POST", USAGE_URL, HOSTS, headers, body=b"{}")
+        if response.status != 200:
+            return common.status_row(PROVIDER, response)
+        if not isinstance(response.data, dict):
+            return common.error_row(PROVIDER, "malformed-response")
+        if not _is_untracked(response.data, datetime.now(timezone.utc)):
+            break
 
     return common.finish(PROVIDER, parse(response.data))

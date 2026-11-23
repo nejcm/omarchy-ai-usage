@@ -1,5 +1,6 @@
 import json
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 from support import FakeRequest, ProviderCase, load, write
@@ -42,6 +43,35 @@ class AntigravityTests(ProviderCase):
         self.assertEqual(request.calls[0]["method"], "POST")
         self.assertEqual(request.calls[0]["headers"]["Authorization"], "Bearer SECRET-TOKEN")
         self.assertTrue(request.calls[0]["headers"]["User-Agent"].startswith("antigravity/hub/"))
+
+    def untracked(self):
+        now = datetime.now(timezone.utc)
+        def bucket(bucket_id, window, minutes):
+            reset = (now + timedelta(minutes=minutes)).isoformat().replace("+00:00", "Z")
+            return {"bucketId": bucket_id, "window": window, "remainingFraction": 1, "resetTime": reset}
+        return {"groups": [{"buckets": [bucket("gemini-weekly", "weekly", 10080), bucket("gemini-5h", "5h", 300)]},
+                           {"buckets": [bucket("3p-weekly", "weekly", 10080), bucket("3p-5h", "5h", 300)]}]}
+
+    def test_untracked_replica_answer_is_retried(self):
+        write(self.home, self.AUTH, self.valid_auth())
+        request = FakeRequest({"retrieveUserQuotaSummary": [
+            common.Response(200, self.untracked()), common.Response(200, load("antigravity_usage.json"))]})
+        row = antigravity.collect(request, self.home, {})
+        self.assertEqual(self.labels(row["metrics"])[:2], [("Gemini", 8.0, 300), ("Gemini Weekly", 14.0, 10080)])
+        self.assertEqual(len(request.calls), 2)
+
+    def test_untracked_answer_accepted_after_attempts(self):
+        write(self.home, self.AUTH, self.valid_auth())
+        request = FakeRequest({"retrieveUserQuotaSummary": common.Response(200, self.untracked())})
+        row = antigravity.collect(request, self.home, {})
+        self.assertEqual(row["status"], common.OK)
+        self.assertEqual(self.labels(row["metrics"])[0], ("Gemini", 0.0, 300))
+        self.assertEqual(len(request.calls), antigravity.ATTEMPTS)
+
+    def test_fixed_reset_is_tracked(self):
+        payload = self.untracked()
+        payload["groups"][0]["buckets"][1]["resetTime"] = "2030-01-01T00:00:00Z"
+        self.assertFalse(antigravity._is_untracked(payload, datetime.now(timezone.utc)))
 
     def test_used_claude_session_is_shown(self):
         payload = load("antigravity_usage.json")
