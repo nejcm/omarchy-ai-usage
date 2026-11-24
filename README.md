@@ -138,8 +138,9 @@ entry.
 
 Claude Code is the exception to read-only credential access: the plugin can
 refresh an expired OAuth token and save the rotated credentials back to
-Claude's credential file. Codex, Cursor, Grok, Antigravity, and Z.ai sign-in
-renewal stays with their own tools. See [Claude OAuth refresh](#claude-oauth-refresh) for the safeguards.
+Claude's credential file. Antigravity's hourly access token is refreshed in
+memory only, never written back. Codex, Cursor, Grok, and Z.ai sign-in renewal
+stays with their own tools. See [Claude OAuth refresh](#claude-oauth-refresh) for the safeguards.
 
 | Provider | Local credential file | Environment overrides |
 | --- | --- | --- |
@@ -338,7 +339,7 @@ recognize a rejected refresh; that body is not included in usage output.
 | OpenCode | `opencode.ai` |
 | Cursor | `api2.cursor.sh` |
 | Grok | `cli-chat-proxy.grok.com` |
-| Antigravity | `daily-cloudcode-pa.googleapis.com` |
+| Antigravity | `daily-cloudcode-pa.googleapis.com`, `oauth2.googleapis.com` |
 | Z.ai | `api.z.ai` |
 
 ### Claude OAuth refresh

@@ -165,6 +165,26 @@ class AntigravityTests(ProviderCase):
         write(self.home, self.AUTH, {"access_token": "SECRET-TOKEN"})
         self.assertEqual(antigravity.collect(FakeRequest(self.routes()), self.home, {})["status"], common.OK)
 
+    def test_expired_token_is_refreshed_in_memory(self):
+        path = write(self.home, self.AUTH, {"token": {"access_token": "OLD", "refresh_token": "r",
+                                                     "expiry": "2001-09-09T01:46:40Z"}})
+        before = path.read_text()
+        routes = dict(self.routes(), **{"oauth2.googleapis.com/token": common.Response(200, {"access_token": "NEW"})})
+        request = FakeRequest(routes)
+        row = antigravity.collect(request, self.home, {})
+        self.assertEqual(row["status"], common.OK)
+        self.assertEqual(request.calls[1]["headers"]["Authorization"], "Bearer NEW")
+        self.assertEqual(path.read_text(), before)
+
+    def test_rejected_refresh_is_expired(self):
+        write(self.home, self.AUTH, {"token": {"access_token": "OLD", "refresh_token": "r",
+                                              "expiry": "2001-09-09T01:46:40Z"}})
+        routes = dict(self.routes(), **{"oauth2.googleapis.com/token": common.Response(400, None)})
+        request = FakeRequest(routes)
+        row = antigravity.collect(request, self.home, {})
+        self.assertEqual((row["status"], row["error"]), (common.EXPIRED, "auth-expired"))
+        self.assertEqual(len(request.calls), 1)
+
     def test_expired_expiry(self):
         write(self.home, self.AUTH, {"token": {"access_token": "SECRET-TOKEN", "expiry": "2001-09-09T01:46:40Z"}})
         request = FakeRequest(self.routes())

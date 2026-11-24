@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.parse
 import subprocess
 from datetime import datetime, timedelta, timezone
 
@@ -15,6 +16,11 @@ ABBREV = "A"
 PROVIDER = (ID, NAME, ABBREV)
 # `agy`'s endpoint; the production host reports no Gemini usage for personal accounts.
 HOSTS = ("daily-cloudcode-pa.googleapis.com",)
+TOKEN_URL = "https://oauth2.googleapis.com/token"
+TOKEN_HOSTS = ("oauth2.googleapis.com",)
+# `agy`'s installed-app OAuth client, public in its binary; Google does not treat it as secret.
+CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+CLIENT_SECRET = "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"
 USAGE_URL = "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
 # shortcut: Google returns the Gemini groups only to an Antigravity client UA; bump if they disappear again.
 USER_AGENT = "antigravity/hub/2.24.0 (aidev_client; os_type=linux; arch=x64; cl=963137146)"
@@ -60,13 +66,34 @@ def read_credentials(home: str, env: dict):
     access = str(source.get("access_token") or "").strip()
     if not access:
         return None, common.NOT_SIGNED_IN
-    return {"access_token": access, "expiry": source.get("expiry")}, None
+    refresh = str(source.get("refresh_token") or "").strip()
+    return {"access_token": access, "refresh_token": refresh, "expiry": source.get("expiry")}, None
 
 
 def _is_expired(value) -> bool:
-    # No client secret to refresh with, so an expired token means sign-in expired.
     expiry = common.parse_time(value)
     return expiry is not None and expiry <= datetime.now(timezone.utc)
+
+
+def _refresh(request, refresh_token: str):
+    """In-memory refresh; `agy` keeps owning the stored token. (token, None) or (None, row)."""
+    body = urllib.parse.urlencode({
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+    }).encode("utf-8")
+    response = request("POST", TOKEN_URL, TOKEN_HOSTS,
+                       {"Content-Type": "application/x-www-form-urlencoded"}, body=body)
+    if response.status in (400, 401):
+        return None, common.row(PROVIDER, common.EXPIRED, error="auth-expired")
+    if response.status != 200:
+        return None, common.status_row(PROVIDER, response)
+    data = response.data if isinstance(response.data, dict) else {}
+    token = str(data.get("access_token") or "").strip()
+    if not token:
+        return None, common.error_row(PROVIDER, "refresh-failed")
+    return token, None
 
 
 def _family(bucket_id: str, group: dict) -> str:
@@ -140,10 +167,15 @@ def collect(request, home: str, env: dict) -> dict:
     if code:
         return common.error_row(PROVIDER, code)
 
+    token = credentials["access_token"]
     if _is_expired(credentials["expiry"]):
-        return common.row(PROVIDER, common.EXPIRED, error="auth-expired")
+        if not credentials["refresh_token"]:
+            return common.row(PROVIDER, common.EXPIRED, error="auth-expired")
+        token, failed = _refresh(request, credentials["refresh_token"])
+        if failed:
+            return failed
 
-    headers = _headers(credentials["access_token"])
+    headers = _headers(token)
     for _ in range(ATTEMPTS):
         response = request("POST", USAGE_URL, HOSTS, headers, body=b"{}")
         if response.status != 200:
