@@ -2,7 +2,7 @@
 
 ## Release
 
-When asked to bump, release, or "commit and push" a version:
+When asked to bump, release a new version:
 
 1. Bump `version` in `manifest.json` (semver: `fix` → patch, `feat` → minor).
 2. Commit the work as Conventional Commits, then a separate `chore: release vX.Y.Z` commit containing only the manifest bump.
