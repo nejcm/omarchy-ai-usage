@@ -90,12 +90,14 @@ def scan(connection: sqlite3.Connection, sources, now=None, budget: int = BUDGET
     moment = time.time() if now is None else now
     cutoff = moment - STATE_DAYS * 86400
     attempted = dict(connection.execute("SELECT path, attempted FROM files"))
+    known = {row[0]: row[1:] for row in connection.execute("SELECT path, inode, size, mtime_ns FROM files")}
     files, queries = [], []
     for source in sources:
         if isinstance(source, Query):
             queries.append(source)
         else:
-            files.extend((path, metadata, source) for path, metadata in discover(source, cutoff))
+            files.extend((path, metadata, source) for path, metadata in discover(source, cutoff)
+                         if not _unchanged(connection, known.get(path), path, metadata))
     read_bytes = 0
     pending = False
     ordered = sorted(files, key=lambda entry: (attempted.get(entry[0], 0), entry[0]))
@@ -112,6 +114,12 @@ def scan(connection: sqlite3.Connection, sources, now=None, budget: int = BUDGET
     connection.commit()
     _forget_missing(connection)
     return Scan(read_bytes, pending)
+
+
+def _unchanged(connection, stored, path, metadata) -> bool:
+    """Fully read and untouched since; skipping it avoids a commit (an fsync) per file per scan."""
+    current = (metadata.st_ino, metadata.st_size, metadata.st_mtime_ns)
+    return stored == current and not _has_work(connection, path, metadata)
 
 
 def _has_work(connection, path, metadata) -> bool:

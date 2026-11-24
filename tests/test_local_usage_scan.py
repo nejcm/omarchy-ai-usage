@@ -110,6 +110,13 @@ class StateTests(ScanCase):
         self.assertEqual(self.keys(), ["k1", "k2"])
         self.assertEqual(self.state(path), {"lines": 2})
 
+    def test_unchanged_file_is_not_rewritten(self):
+        path = self.write("a.jsonl", event("k1"))
+        self.scan()
+        self.scan(now=NOW + 60)
+        attempted = self.connection.execute("SELECT attempted FROM files WHERE path = ?", (str(path),)).fetchone()[0]
+        self.assertEqual(attempted, NOW)
+
     def test_budget_spreads_cold_scan_over_runs(self):
         texts = [event("k%d" % index) for index in range(4)]
         for index, text in enumerate(texts):
