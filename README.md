@@ -164,7 +164,7 @@ skipped.
 | Claude Code | `~/.claude/projects/**/*.jsonl` |
 | Codex | `~/.codex/sessions/**/*.jsonl`, `~/.codex/archived_sessions/**/*.jsonl` |
 | OpenCode | `~/.local/share/opencode/opencode.db` (read-only) |
-| Antigravity | `~/.gemini/antigravity-cli/conversations/*.db` (read-only) |
+| Antigravity | `~/.gemini/antigravity-cli/conversations/*.db` and T3 Code's `~/.t3/userdata/providers/antigravity/*/antigravity-acp/conversations/*.db` (read-only) |
 
 The `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and `XDG_DATA_HOME`/`OPENCODE_DATA_DIR`
 overrides apply here too; no other paths are read.

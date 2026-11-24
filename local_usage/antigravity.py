@@ -16,16 +16,23 @@ MAX_INT = 2 ** 63 - 1
 
 def query(home: str, env: dict) -> local_usage.scan.Query:
     """The Antigravity conversations source; a missing directory yields no events."""
-    return local_usage.scan.Query(ID, lambda cutoff: _events(conversations_directory(home), cutoff))
+    return local_usage.scan.Query(ID, lambda cutoff: _events(home, cutoff))
 
 
 def conversations_directory(home: str) -> str:
     return os.path.join(home, ".gemini", "antigravity-cli", "conversations")
 
 
-def _events(directory, cutoff):
+def acp_conversations_pattern(home: str) -> str:
+    """T3 Code runs agy over ACP with a per-install data dir instead of ~/.gemini."""
+    return os.path.join(home, ".t3", "userdata", "providers", "antigravity", "*", "antigravity-acp", "conversations")
+
+
+def _events(home, cutoff):
     events = []
-    for path in sorted(glob.glob(os.path.join(directory, "*.db"))):
+    paths = glob.glob(os.path.join(conversations_directory(home), "*.db"))
+    paths += glob.glob(os.path.join(acp_conversations_pattern(home), "*.db"))
+    for path in sorted(paths):
         try:
             if os.path.getmtime(path) < cutoff:
                 continue

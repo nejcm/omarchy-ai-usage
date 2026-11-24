@@ -123,6 +123,14 @@ class SourceTests(AntigravityCase):
         self.scan()
         self.assertEqual(self.rows(), [])
 
+    def test_t3_acp_conversations_are_included(self):
+        self.directory = Path(local_usage.antigravity.acp_conversations_pattern(self.home).replace("*", "install"))
+        self.directory.mkdir(parents=True)
+        self.conversation("conv-acp", [generation(model="gemini-4-neon", input=4, output=2)])
+        self.scan()
+        self.assertEqual([row[:5] for row in self.rows()],
+                         [("antigravity:conv-acp:0", "antigravity", STARTED, "conv-acp", "gemini-4-neon")])
+
     def test_missing_directory_is_absent(self):
         self.directory.rmdir()
         self.scan()
